@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Q&A AI</title>
+  <link rel="icon" type="image/jpeg" href="/logo.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+  <!-- Top Navbar -->
+  <header>
+    <div class="brand-section">
+      <button class="btn-icon btn-square" id="toggle-sidebar-btn" title="Toggle Sidebar">☰</button>
+      <img src="/logo.jpg" alt="Q&A AI Logo" class="brand-img">
+      <div class="brand-title">Q&A AI</div>
+    </div>
+    <div class="header-actions">
+      <div id="auth-section">
+        <!-- Injected dynamically via JS: Login button OR User profile pill -->
+      </div>
+      <button class="btn-icon btn-square" id="settings-btn" title="Settings">⚙️</button>
+      <button class="btn-icon btn-square" id="theme-btn" title="Toggle Theme">🌙</button>
+    </div>
+  </header>
+
+  <!-- App Workspace (Sidebar + Main Chat) -->
+  <div class="app-workspace">
+    <!-- Backdrop overlay for mobile sidebar -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <!-- History Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <button class="btn-new-chat" id="new-chat-btn">
+          <span>＋</span>
+          <span>New Chat</span>
+        </button>
+      </div>
+      <div class="sidebar-section-title">PostgreSQL History</div>
+      <div class="history-list" id="history-list">
+        <!-- Rendered dynamically -->
+      </div>
+      <div class="sidebar-footer" id="sidebar-footer" style="display: none;">
+        <button class="sidebar-exit-btn" onclick="logout()" title="Logout / Exit account">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+            <polyline points="16 17 21 12 16 7"/>
+            <line x1="21" y1="12" x2="9" y2="12"/>
+          </svg>
+          <span>Exit</span>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Clean Chat Surface -->
+    <main>
+      <div id="chat-container">
+        <div class="empty-state" id="empty-state">
+          <img src="/logo.jpg" alt="Q&A AI Logo" class="empty-logo">
+          <h1 class="empty-title">Q&A AI</h1>
+          <p class="empty-sub" id="welcome-sub">Type any question below to get an instant answer.</p>
+        </div>
+      </div>
+
+      <!-- Question Input Bar -->
+      <div class="input-wrapper">
+        <div class="input-bar">
+          <textarea
+            id="question-input"
+            placeholder="Ask Q&A AI any question... (Press Enter to submit)"
+            rows="1"
+          ></textarea>
+          <button class="submit-btn" id="send-btn" title="Submit Question">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="input-footer">
+          <span>Enter ↵ to submit • Shift + Enter for newline</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Auth Modal (Login / Sign Up) -->
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" onclick="switchAuthTab('login')">Log In</button>
+        <button class="auth-tab" id="tab-signup" onclick="switchAuthTab('signup')">Sign Up</button>
+        <button class="btn-icon btn-square" onclick="closeAuthModal()" style="margin-left:auto; width:28px; height:28px;">✕</button>
+      </div>
+      <div class="auth-error" id="auth-error-msg"></div>
+      <div class="form-group">
+        <label class="form-label" for="auth-username">Username</label>
+        <input type="text" id="auth-username" class="form-control" placeholder="Enter username">
+      </div>
+      <div class="form-group" id="group-email" style="display:none;">
+        <label class="form-label" for="auth-email">Email (Optional)</label>
+        <input type="email" id="auth-email" class="form-control" placeholder="you@example.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="auth-password">Password</label>
+        <input type="password" id="auth-password" class="form-control" placeholder="Enter password">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeAuthModal()">Cancel</button>
+        <button class="btn-primary" id="auth-submit-btn" onclick="submitAuth()">Log In</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Modal (Shows what Q&A AI remembers about the user) -->
+  <div class="modal-backdrop" id="memory-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">🧠 User Account Memory</h3>
+        <button class="btn-icon btn-square" onclick="closeMemoryModal()">✕</button>
+      </div>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:14px;">
+        Q&A AI automatically remembers facts, preferences, and details stored in your PostgreSQL account to personalize future responses.
+      </p>
+      <div id="memory-items-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 14px; font-size: 0.88rem;">
+        <!-- Injected via JS -->
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="clearMemories()">Clear All Memories</button>
+        <button class="btn-primary" onclick="closeMemoryModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div class="modal-backdrop" id="settings-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 class="modal-title">⚙️ Q&A AI Settings</h3>
+        <button class="btn-icon btn-square" onclick="closeSettingsModal()">✕</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-model">Active Model</label>
+        <select id="setting-model" class="form-control">
+          <option value="openai/gpt-oss-20b" selected>openai/gpt-oss-20b (Fast & Free)</option>
+          <option value="qwen/qwen3.8-27b">qwen/qwen3.8-27b (High Capability)</option>
+          <option value="openai/gpt-oss-120b">openai/gpt-oss-120b (Large Model)</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="setting-system">System Instructions</label>
+        <textarea id="setting-system" class="form-control" rows="3">You are Q&A AI, an intelligent, accurate, and concise question-answering assistant.
+- Answer questions directly, clearly, and thoroughly.
+- Format code blocks using appropriate syntax identifiers.
+- Explain concepts with helpful step-by-step examples when relevant.
+- Remember and respect user preferences, profile details, and memories.
+- Be polite, professional, and helpful.</textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" onclick="closeSettingsModal()">Cancel</button>
+        <button class="btn-primary" onclick="saveSettings()">Save Changes</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

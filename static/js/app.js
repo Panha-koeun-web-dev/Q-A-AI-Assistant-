@@ -1,0 +1,523 @@
+    const savedTheme = localStorage.getItem('qa_ai_theme') || 'dark';
+
+    const state = {
+      user: null,
+      token: localStorage.getItem('qa_ai_token') || '',
+      currentConversationId: null,
+      conversations: [],
+      history: [],
+      isGenerating: false,
+      model: 'openai/gpt-oss-20b',
+      systemInstructions: `You are Q&A AI, an intelligent, accurate, and concise question-answering assistant.
+- Answer questions directly, clearly, and thoroughly.
+- Format code blocks using appropriate syntax identifiers.
+- Explain concepts with helpful step-by-step examples when relevant.
+- Remember and respect user preferences, profile details, and memories.
+- Be polite, professional, and helpful.`,
+      theme: savedTheme,
+      authMode: 'login'
+    };
+
+    const chatContainer = document.getElementById('chat-container');
+    const emptyState = document.getElementById('empty-state');
+    const inputEl = document.getElementById('question-input');
+    const sendBtn = document.getElementById('send-btn');
+    const themeBtn = document.getElementById('theme-btn');
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const authModal = document.getElementById('auth-modal');
+    const memoryModal = document.getElementById('memory-modal');
+    const memoryBtn = document.getElementById('memory-btn');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const historyList = document.getElementById('history-list');
+    const authSection = document.getElementById('auth-section');
+    const sidebar = document.getElementById('sidebar');
+    const sidebarFooter = document.getElementById('sidebar-footer');
+    const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    // Restore sidebar desktop collapsed state
+    if (window.innerWidth > 768 && localStorage.getItem('qa_ai_sidebar_collapsed') === 'true') {
+      sidebar.classList.add('collapsed');
+    }
+
+    function toggleSidebar() {
+      if (window.innerWidth <= 768) {
+        const isOpen = sidebar.classList.toggle('open');
+        if (sidebarBackdrop) sidebarBackdrop.classList.toggle('active', isOpen);
+      } else {
+        const isCollapsed = sidebar.classList.toggle('collapsed');
+        localStorage.setItem('qa_ai_sidebar_collapsed', isCollapsed);
+      }
+    }
+
+    function closeSidebarMobile() {
+      if (window.innerWidth <= 768) {
+        sidebar.classList.remove('open');
+        if (sidebarBackdrop) sidebarBackdrop.classList.remove('active');
+      }
+    }
+
+    // Theme initialization
+    document.documentElement.setAttribute('data-theme', state.theme);
+    themeBtn.textContent = state.theme === 'dark' ? '🌙' : '☀️';
+
+    marked.setOptions({
+      highlight: function(code, lang) {
+        if (lang && hljs.getLanguage(lang)) {
+          return hljs.highlight(code, { language: lang }).value;
+        }
+        return hljs.highlightAuto(code).value;
+      },
+      breaks: true
+    });
+
+    // Event Listeners
+    inputEl.addEventListener('input', () => {
+      inputEl.style.height = 'auto';
+      inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+    });
+
+    inputEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitQuestion();
+      }
+    });
+
+    sendBtn.addEventListener('click', submitQuestion);
+    settingsBtn.addEventListener('click', openSettingsModal);
+    newChatBtn.addEventListener('click', startNewChat);
+    if (memoryBtn) memoryBtn.addEventListener('click', openMemoryModal);
+    toggleSidebarBtn.addEventListener('click', toggleSidebar);
+    if (sidebarBackdrop) {
+      sidebarBackdrop.addEventListener('click', closeSidebarMobile);
+    }
+
+    themeBtn.addEventListener('click', () => {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', state.theme);
+      themeBtn.textContent = state.theme === 'dark' ? '🌙' : '☀️';
+      localStorage.setItem('qa_ai_theme', state.theme);
+    });
+
+    // Authentication Logic
+    async function checkAuth() {
+      if (!state.token) {
+        renderLoggedOut();
+        return;
+      }
+      try {
+        const res = await fetch('/api/auth/me', {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await res.json();
+        if (data.success && data.user) {
+          state.user = data.user;
+          renderLoggedIn();
+          loadConversations();
+          loadMemoriesCount();
+        } else {
+          localStorage.removeItem('qa_ai_token');
+          state.token = '';
+          renderLoggedOut();
+        }
+      } catch (err) {
+        renderLoggedOut();
+      }
+    }
+
+    function renderLoggedIn() {
+      authSection.innerHTML = `
+        <div class="user-pill" title="Logged in as ${state.user.username}">
+          <div class="user-avatar-small">${state.user.username.charAt(0).toUpperCase()}</div>
+          <span>${state.user.username}</span>
+        </div>
+      `;
+      if (sidebarFooter) sidebarFooter.style.display = 'block';
+      document.getElementById('welcome-sub').textContent = `Welcome back, ${state.user.username}! Ask any question to continue.`;
+    }
+
+    function renderLoggedOut() {
+      state.user = null;
+      authSection.innerHTML = `
+        <button class="btn-icon" onclick="openAuthModal('login')">
+          <span>👤</span>
+          <span>Log In</span>
+        </button>
+      `;
+      if (sidebarFooter) sidebarFooter.style.display = 'none';
+      historyList.innerHTML = `<div style="padding:14px; font-size:0.8rem; color:var(--text-muted); text-align:center;">Log in to view and save conversation history.</div>`;
+    }
+
+    function openAuthModal(mode = 'login') {
+      switchAuthTab(mode);
+      authModal.classList.add('active');
+    }
+
+    function closeAuthModal() {
+      authModal.classList.remove('active');
+    }
+
+    function switchAuthTab(mode) {
+      state.authMode = mode;
+      const isLogin = mode === 'login';
+      document.getElementById('tab-login').classList.toggle('active', isLogin);
+      document.getElementById('tab-signup').classList.toggle('active', !isLogin);
+      document.getElementById('group-email').style.display = isLogin ? 'none' : 'block';
+      document.getElementById('auth-submit-btn').textContent = isLogin ? 'Log In' : 'Create Account';
+      document.getElementById('auth-error-msg').style.display = 'none';
+    }
+
+    async function submitAuth() {
+      const username = document.getElementById('auth-username').value.trim();
+      const password = document.getElementById('auth-password').value.trim();
+      const email = document.getElementById('auth-email').value.trim();
+      const errorEl = document.getElementById('auth-error-msg');
+
+      if (!username || !password) {
+        errorEl.textContent = 'Please fill in both username and password.';
+        errorEl.style.display = 'block';
+        return;
+      }
+
+      const endpoint = state.authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password, email })
+        });
+        const data = await res.json();
+        if (data.success) {
+          state.token = data.token;
+          state.user = data.user;
+          localStorage.setItem('qa_ai_token', data.token);
+          closeAuthModal();
+          renderLoggedIn();
+          loadConversations();
+          loadMemoriesCount();
+        } else {
+          errorEl.textContent = data.error || 'Authentication failed.';
+          errorEl.style.display = 'block';
+        }
+      } catch (e) {
+        errorEl.textContent = 'Network error contacting server.';
+        errorEl.style.display = 'block';
+      }
+    }
+
+    async function logout() {
+      if (state.token) {
+        fetch('/api/auth/logout', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+      }
+      localStorage.removeItem('qa_ai_token');
+      state.token = '';
+      state.user = null;
+      renderLoggedOut();
+      startNewChat();
+    }
+
+    // Conversations / History Logic
+    async function loadConversations() {
+      if (!state.token) return;
+      try {
+        const res = await fetch('/api/conversations', {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          state.conversations = data.conversations;
+          renderHistoryList();
+        }
+      } catch (err) {}
+    }
+
+    function renderHistoryList() {
+      historyList.innerHTML = '';
+      if (!state.conversations.length) {
+        historyList.innerHTML = `<div style="padding:14px; font-size:0.8rem; color:var(--text-muted); text-align:center;">No past chats yet.</div>`;
+        return;
+      }
+
+      state.conversations.forEach(c => {
+        const item = document.createElement('div');
+        item.className = `history-item ${c.id === state.currentConversationId ? 'active' : ''}`;
+        item.innerHTML = `
+          <div class="history-title" onclick="loadConversation('${c.id}')">${c.title || 'Untitled Chat'}</div>
+          <button class="history-delete" onclick="deleteConversation('${c.id}', event)" title="Delete">✕</button>
+        `;
+        historyList.appendChild(item);
+      });
+    }
+
+    async function startNewChat() {
+      closeSidebarMobile();
+      state.currentConversationId = null;
+      state.history = [];
+      chatContainer.innerHTML = '';
+      chatContainer.appendChild(emptyState);
+      emptyState.style.display = 'block';
+      inputEl.value = '';
+      inputEl.focus();
+      renderHistoryList();
+    }
+
+    async function loadConversation(convId) {
+      closeSidebarMobile();
+      if (!state.token) return;
+      state.currentConversationId = convId;
+      renderHistoryList();
+
+      try {
+        const res = await fetch(`/api/conversations/${convId}`, {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          chatContainer.innerHTML = '';
+          state.history = [];
+          data.messages.forEach(m => {
+            addMessage(m.role === 'user' ? 'You' : 'Q&A AI', m.content);
+            state.history.push({ role: m.role, content: m.content });
+          });
+        }
+      } catch (err) {}
+    }
+
+    async function deleteConversation(convId, evt) {
+      evt.stopPropagation();
+      if (!confirm('Are you sure you want to delete this conversation?')) return;
+      try {
+        await fetch(`/api/conversations/${convId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        if (state.currentConversationId === convId) {
+          startNewChat();
+        }
+        loadConversations();
+      } catch (e) {}
+    }
+
+    // Memory Logic
+    async function loadMemoriesCount() {
+      if (!state.token) return;
+      try {
+        const res = await fetch('/api/memories', {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await res.json();
+        if (data.success) {
+          const keys = Object.keys(data.memories || {});
+          const countEl = document.getElementById('memory-count');
+          if (countEl) countEl.textContent = keys.length;
+        }
+      } catch (e) {}
+    }
+
+    async function openMemoryModal() {
+      if (!state.token) {
+        openAuthModal('login');
+        return;
+      }
+      try {
+        const res = await fetch('/api/memories', {
+          headers: { 'Authorization': `Bearer ${state.token}` }
+        });
+        const data = await res.json();
+        const listEl = document.getElementById('memory-items-list');
+        listEl.innerHTML = '';
+
+        const memories = data.memories || {};
+        const keys = Object.keys(memories);
+
+        if (!keys.length) {
+          listEl.innerHTML = '<div style="color:var(--text-muted); font-style:italic;">No memories recorded yet. Ask questions and share preferences with Q&A AI!</div>';
+        } else {
+          keys.forEach(k => {
+            const item = document.createElement('div');
+            item.style.padding = '6px 0';
+            item.style.borderBottom = '1px solid var(--border)';
+            item.innerHTML = `<strong>${k}:</strong> <span>${memories[k]}</span>`;
+            listEl.appendChild(item);
+          });
+        }
+        memoryModal.classList.add('active');
+      } catch (e) {}
+    }
+
+    function closeMemoryModal() {
+      memoryModal.classList.remove('active');
+    }
+
+    async function clearMemories() {
+      if (!confirm('Clear all stored memories for your account?')) return;
+      await fetch('/api/memories', {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${state.token}` }
+      });
+      loadMemoriesCount();
+      closeMemoryModal();
+    }
+
+    function openSettingsModal() { settingsModal.classList.add('active'); }
+    function closeSettingsModal() { settingsModal.classList.remove('active'); }
+    function saveSettings() {
+      state.model = document.getElementById('setting-model').value || state.model;
+      state.systemInstructions = document.getElementById('setting-system').value;
+      closeSettingsModal();
+    }
+
+    // Chat rendering
+    function addMessage(sender, content) {
+      if (emptyState) emptyState.style.display = 'none';
+
+      const isUser = (sender === 'You');
+      const row = document.createElement('div');
+      row.className = `message-row ${isUser ? 'user-row' : 'ai-row'}`;
+
+      let avatar;
+      if (isUser) {
+        avatar = document.createElement('div');
+        avatar.className = 'avatar avatar-user';
+        avatar.textContent = state.user ? state.user.username.charAt(0).toUpperCase() : '👤';
+      } else {
+        avatar = document.createElement('img');
+        avatar.className = 'avatar avatar-img';
+        avatar.src = '/logo.jpg';
+        avatar.alt = 'Q&A AI';
+      }
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'bubble-wrapper';
+
+      const senderLabel = document.createElement('div');
+      senderLabel.className = 'sender-name';
+      senderLabel.textContent = isUser ? (state.user ? state.user.username : 'You') : 'Q&A AI';
+      wrapper.appendChild(senderLabel);
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+
+      if (isUser) {
+        bubble.textContent = content;
+      } else {
+        bubble.innerHTML = marked.parse(content);
+        attachCopyButtons(bubble);
+      }
+
+      wrapper.appendChild(bubble);
+      row.appendChild(avatar);
+      row.appendChild(wrapper);
+      chatContainer.appendChild(row);
+
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+      return bubble;
+    }
+
+    function attachCopyButtons(container) {
+      const preBlocks = container.querySelectorAll('pre');
+      preBlocks.forEach((pre) => {
+        const code = pre.querySelector('code');
+        const lang = (code.className.match(/language-(\\w+)/) || [, 'code'])[1];
+
+        const header = document.createElement('div');
+        header.className = 'code-header';
+        header.innerHTML = `<span>${lang}</span><button class="copy-btn">Copy</button>`;
+
+        const copyBtn = header.querySelector('.copy-btn');
+        copyBtn.addEventListener('click', async () => {
+          await navigator.clipboard.writeText(code.innerText);
+          copyBtn.textContent = 'Copied!';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        });
+
+        pre.insertBefore(header, code);
+      });
+    }
+
+    function showTypingIndicator() {
+      const row = document.createElement('div');
+      row.id = 'typing-indicator-row';
+      row.className = 'message-row ai-row';
+      row.innerHTML = `
+        <img src="/logo.jpg" alt="Q&A AI" class="avatar avatar-img">
+        <div class="bubble-wrapper">
+          <div class="sender-name">Q&A AI</div>
+          <div class="typing-dots">
+            <span class="dot"></span>
+            <span class="dot"></span>
+            <span class="dot"></span>
+          </div>
+        </div>
+      `;
+      chatContainer.appendChild(row);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    function removeTypingIndicator() {
+      const indicator = document.getElementById('typing-indicator-row');
+      if (indicator) indicator.remove();
+    }
+
+    async function submitQuestion() {
+      const question = inputEl.value.trim();
+      if (!question || state.isGenerating) return;
+
+      state.isGenerating = true;
+      sendBtn.disabled = true;
+      inputEl.value = '';
+      inputEl.style.height = 'auto';
+
+      addMessage('You', question);
+      showTypingIndicator();
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+
+        const response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify({
+            question: question,
+            history: state.history,
+            model: state.model,
+            system_instructions: state.systemInstructions,
+            conversation_id: state.currentConversationId
+          })
+        });
+
+        const data = await response.json();
+        removeTypingIndicator();
+
+        if (data.success) {
+          if (data.conversation_id) {
+            state.currentConversationId = data.conversation_id;
+            loadConversations();
+          }
+          addMessage('Q&A AI', data.answer);
+          state.history.push({ role: 'user', content: question });
+          state.history.push({ role: 'assistant', content: data.answer });
+          if (state.history.length > 20) state.history = state.history.slice(-20);
+          loadMemoriesCount();
+        } else {
+          addMessage('Q&A AI', data.error || 'Failed to get answer.');
+        }
+      } catch (err) {
+        removeTypingIndicator();
+        addMessage('Q&A AI', `⚠️ **Network Error:** Could not contact server. Please ensure the server is running.`);
+      } finally {
+        state.isGenerating = false;
+        sendBtn.disabled = false;
+        inputEl.focus();
+      }
+    }
+
+    // Startup check
+    checkAuth();

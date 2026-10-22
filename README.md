@@ -1,38 +1,82 @@
-# ✦ Q&A AI
+# ✦ Q&A AI Assistant
 
-A fast, clean question-and-answering AI assistant interface powered by Groq's free API and OpenAI.
+A fast, browser-based AI assistant with **PostgreSQL** user accounts, authentication, persistent chat history, and long-term memory.
 
----
+## 🗂 Project Structure
 
-## 🚀 1. Browser Web Studio (`web_ui.py`) &mdash; **Recommended**
-
-A clean, minimalist Q&A interface that runs directly in your browser:
-- **Clean interface**: Focused on questions and answers without clutter.
-- **Auto-Launch**: Automatically opens your browser upon starting.
-- **Theme support**: Dark and light modes with 1 click (`🌙`/`☀️`).
-- **Code formatting**: Formatted code blocks with a **1-click Copy** button.
-- **Free & Ultra-Fast**: Powered by Groq's active high-performance model (`openai/gpt-oss-20b`).
-
-### How to Run:
-```bash
-python web_ui.py
 ```
-> The application will open in your browser at `http://127.0.0.1:5000`.
-
----
-
-## 2. Desktop GUI (`gui.py`)
-Run as a desktop application window:
-
-```bash
-python gui.py
+my_ai_assistant/
+├── run.py               # Entry point — start the web server
+├── .env                 # API keys & DB config (not committed)
+├── requirements.txt     # Python dependencies
+├── logo.jpg             # App logo
+│
+├── src/                 # Python backend modules
+│   ├── config.py        # Centralized settings
+│   ├── db.py            # Database layer (PostgreSQL + SQLite fallback)
+│   └── ai_service.py    # OpenAI/Groq AI client & memory integration
+│
+├── templates/
+│   └── index.html       # Single-page app HTML template
+│
+├── static/
+│   ├── css/style.css    # App styles (light + dark mode)
+│   ├── js/app.js        # Frontend JavaScript
+│   └── images/logo.jpg  # Logo asset
+│
+└── archive/             # Legacy entry points (not active)
+    ├── app.py           # Old Streamlit UI
+    ├── gui.py           # Old Tkinter desktop UI
+    └── main.py          # Old CLI interface
 ```
 
----
+## 🚀 Quick Start
 
-## 3. Terminal CLI (`main.py`)
-Run directly in your command prompt:
-
+### 1. Install dependencies
 ```bash
-python main.py
+pip install -r requirements.txt
 ```
+
+### 2. Configure `.env`
+```env
+OPENAI_API_KEY=gsk_your_groq_key_here
+OPENAI_BASE_URL=https://api.groq.com/openai/v1
+OPENAI_MODEL=openai/gpt-oss-20b
+
+PGHOST=localhost
+PGPORT=5432
+PGDATABASE=q&a_ai_database
+PGUSER=postgres
+PGPASSWORD=
+```
+
+### 3. Run
+```bash
+python run.py
+```
+
+Then open `http://127.0.0.1:5000` in your browser.
+
+## ✨ Features
+
+- 🔐 **User accounts** with secure PBKDF2 password hashing
+- 💾 **PostgreSQL chat history** with per-thread conversation management
+- 🧠 **Persistent user memory** — AI remembers your name, preferences, and learning topics
+- 🎨 **Light & Dark mode** with high-contrast code blocks and syntax highlighting
+- 📱 **Responsive design** with collapsible sidebar (desktop + mobile)
+- 🚀 **Auto model fallback** — tries multiple Groq models if one fails
+
+## ⚙️ Configuration
+
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | API key (Groq free key starts with `gsk_`) |
+| `OPENAI_BASE_URL` | API base URL (default: Groq) |
+| `OPENAI_MODEL` | Model name (default: `openai/gpt-oss-20b`) |
+| `PGHOST` | PostgreSQL host |
+| `PGPORT` | PostgreSQL port |
+| `PGDATABASE` | Database name |
+| `PGUSER` | Database user |
+| `PGPASSWORD` | Database password |
+
+> **No PostgreSQL?** The app automatically falls back to a local SQLite database (`qa_ai.db`).

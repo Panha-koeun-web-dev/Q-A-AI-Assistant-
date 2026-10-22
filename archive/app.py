@@ -35,7 +35,7 @@ Your responsibilities:
 # Page configuration
 st.set_page_config(
     page_title="Q&A AI",
-    page_icon="🤖",
+    page_icon="logo.jpg" if os.path.exists("logo.jpg") else "🤖",
     layout="wide",
 )
 
@@ -57,6 +57,8 @@ if "messages" not in st.session_state:
 
 # Sidebar options
 with st.sidebar:
+    if os.path.exists("logo.jpg"):
+        st.image("logo.jpg", width=90)
     st.title("⚙️ Settings")
     st.markdown("Configure your AI Assistant.")
 
