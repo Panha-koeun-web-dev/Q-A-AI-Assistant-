@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
   <component name="ChangeListManager">
     <list default="true" id="bb14ddb3-7f3d-4ccb-8fec-6529d1019c18" name="Changes" comment="" />
     <option name="SHOW_DIALOG" value="false" />
@@ -7,14 +10,88 @@
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "Panha-koeun-web-dev"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/Panha-koeun-web-dev/Q-A-AI-Assistant-.git",
+    "accountId": "e67af64b-5b8c-446c-b35d-79fb07ad52fc"
+  }
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
   </component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 1,
-  "fromUser": false
-}]]></component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.4664205465097067" />
+      <entry key="MS500" value="3.1549267666659584" />
+      <entry key="S2" value="4.739300737961598" />
+      <entry key="S5" value="5.409437788481449" />
+      <entry key="S10" value="5.687461376316711" />
+      <entry key="S30" value="5.891668191020504" />
+      <entry key="S60" value="5.945293781343947" />
+      <entry key="M2" value="5.972510158203516" />
+      <entry key="M5" value="5.988971033285359" />
+      <entry key="M10" value="5.994479993687755" />
+      <entry key="M15" value="5.996318767134703" />
+      <entry key="M30" value="5.998158768904966" />
+      <entry key="H1" value="5.999079230724262" />
+      <entry key="H2" value="5.999539576922244" />
+      <entry key="H4" value="5.9997697788501725" />
+      <entry key="D1" value="5.999961628473423" />
+      <entry key="W1" value="5.999994518320654" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.3711446578727187" />
+      <entry key="MS500" value="3.1115079679923925" />
+      <entry key="S2" value="4.716916326098289" />
+      <entry key="S5" value="5.397781659470073" />
+      <entry key="S10" value="5.681028149491659" />
+      <entry key="S30" value="5.889370945127125" />
+      <entry key="S60" value="5.944124786288211" />
+      <entry key="M2" value="5.971920467705679" />
+      <entry key="M5" value="5.98873389776788" />
+      <entry key="M10" value="5.9943612149498415" />
+      <entry key="M15" value="5.996239534343896" />
+      <entry key="M30" value="5.998119129006449" />
+      <entry key="H1" value="5.999059404895407" />
+      <entry key="H2" value="5.999529662537441" />
+      <entry key="H4" value="5.999764821290116" />
+      <entry key="D1" value="5.999960802162347" />
+      <entry key="W1" value="5.999994400274963" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1,
+  &quot;fromUser&quot;: false
+}</component>
   <component name="ProjectId" id="3L1uVY5lWFm4RGPFVLEaxBTpDWI" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
@@ -23,12 +100,21 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.app.executor": "Run",
+    "Python.gui.executor": "Run",
+    "Python.run.executor": "Run",
     "RunOnceActivity.MCP Project settings loaded": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "master",
     "junie.onboarding.icon.badge.shown": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
     "python.packages.toolwindow.project.migrated.to.right.top.v2": "true",
     "to.speed.mode.migration.done": "true"
   }
@@ -49,5 +135,8 @@
       <updated>1792633918374</updated>
     </task>
     <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
   </component>
 </project>

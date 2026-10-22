@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 from src import db
-from src.ai_service import query_openai
+from src.ai_service import query_openai, stream_query
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -204,6 +204,73 @@ class RequestHandler(BaseHTTPRequestHandler):
             token = auth_header.split("Bearer ")[1].strip() if auth_header.startswith("Bearer ") else ""
             db.logout_user(token)
             self._send_json({"success": True})
+
+        elif path == "/api/chat/stream":
+            user            = self._get_auth_user()
+            question        = payload.get("question", "").strip()
+            history         = payload.get("history", [])
+            model_override  = payload.get("model")
+            system_override = payload.get("system_instructions")
+            conversation_id = payload.get("conversation_id")
+
+            if not question:
+                self._send_json({"success": False, "error": "Question is empty."})
+                return
+
+            user_id = user["id"] if user else None
+
+            # Create conversation thread in DB before streaming begins
+            if user_id and not conversation_id:
+                conv = db.create_conversation(user_id, question[:40] or "New Chat")
+                conversation_id = conv["id"]
+            if user_id and conversation_id:
+                db.add_message(user_id, conversation_id, "user", question)
+
+            # Start SSE streaming response
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("X-Accel-Buffering", "no")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+
+            full_answer = []
+            used_model  = model_override or ""
+
+            try:
+                for chunk in stream_query(
+                    question=question,
+                    history=history,
+                    model_override=model_override,
+                    system_instructions=system_override,
+                    user_id=user_id,
+                ):
+                    if chunk.startswith("__MODEL__"):
+                        used_model = chunk[len("__MODEL__"):]
+                        self.wfile.write(f"event: model\ndata: {used_model}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                    elif chunk.startswith("__ERROR__"):
+                        err_msg = chunk[len("__ERROR__"):]
+                        self.wfile.write(f"event: error\ndata: {json.dumps(err_msg)}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                        return
+                    else:
+                        full_answer.append(chunk)
+                        self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+
+                # Signal completion with conversation metadata
+                meta = json.dumps({"conversation_id": conversation_id, "model": used_model})
+                self.wfile.write(f"event: done\ndata: {meta}\n\n".encode("utf-8"))
+                self.wfile.flush()
+
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # Client navigated away — normal
+            finally:
+                # Always save to DB after stream ends
+                if full_answer and user_id and conversation_id:
+                    db.add_message(user_id, conversation_id, "assistant", "".join(full_answer))
+            return
 
         elif path == "/api/chat":
             user = self._get_auth_user()

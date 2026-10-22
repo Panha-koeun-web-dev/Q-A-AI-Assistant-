@@ -7,7 +7,7 @@
       conversations: [],
       history: [],
       isGenerating: false,
-      model: 'openai/gpt-oss-20b',
+      model: 'gemini-3.8-flash',
       systemInstructions: `You are Q&A AI, an intelligent, accurate, and concise question-answering assistant.
 - Answer questions directly, clearly, and thoroughly.
 - Format code blocks using appropriate syntax identifiers.

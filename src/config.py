@@ -10,14 +10,16 @@ STATIC_DIR = BASE_DIR / "static"
 # Load environment configuration
 load_dotenv(BASE_DIR / ".env", override=True)
 
-# LLM / Groq Configuration
-API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+# LLM / API Configuration
+API_KEY  = os.getenv("OPENAI_API_KEY", "").strip()
 BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip() or None
-MODEL = os.getenv("OPENAI_MODEL", "openai/gpt-oss-20b").strip()
+MODEL    = os.getenv("OPENAI_MODEL", "gemini-3.8-flash").strip()
 
-# Auto-detect Groq keys
+# Auto-detect provider from key prefix
 if API_KEY.startswith("gsk_") and not BASE_URL:
+    # Groq
     BASE_URL = "https://api.groq.com/openai/v1"
+# Gemini keys (AQ.) already carry BASE_URL in .env — nothing to auto-set
 
 # PostgreSQL Database Configuration
 PGHOST = os.getenv("PGHOST", "localhost")
