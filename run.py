@@ -286,13 +286,13 @@ def main():
     httpd = ThreadingHTTPServer(server_address, RequestHandler)
     url = f"http://127.0.0.1:{port}"
 
-    print("=" * 60)
+    #print("=" * 60)
     print("              ✦ Q&A AI Assistant ✦")
-    print("=" * 60)
+    #print("=" * 60)
     print(f"  Server : {url}")
     print(f"  Model  : {MODEL}")
     print("  Press Ctrl+C to stop.")
-    print("=" * 60)
+    #print("=" * 60)
 
     threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 

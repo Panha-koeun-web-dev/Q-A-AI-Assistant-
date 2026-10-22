@@ -43,11 +43,7 @@ OPENAI_API_KEY=gsk_your_groq_key_here
 OPENAI_BASE_URL=https://api.groq.com/openai/v1
 OPENAI_MODEL=openai/gpt-oss-20b
 
-PGHOST=localhost
-PGPORT=5432
-PGDATABASE=q&a_ai_database
-PGUSER=postgres
-PGPASSWORD=
+
 ```
 
 ### 3. Run
