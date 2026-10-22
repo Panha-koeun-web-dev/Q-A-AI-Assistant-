@@ -354,7 +354,7 @@ def main():
     url = f"http://127.0.0.1:{port}"
 
     #print("=" * 60)
-    print("              ✦ Q&A AI Assistant ✦")
+    print("              Q&A AI Assistant ")
     #print("=" * 60)
     print(f"  Server : {url}")
     print(f"  Model  : {MODEL}")
