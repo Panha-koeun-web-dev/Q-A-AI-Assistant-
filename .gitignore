@@ -19,5 +19,5 @@ Thumbs.db
 
 # User Uploads
 uploads/
-/render.yaml
-/qa_ai.db
+render.yaml
+qa_ai.db
