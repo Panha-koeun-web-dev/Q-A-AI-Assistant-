@@ -30,6 +30,7 @@ from src.database.conversations import (
     get_conversation_messages,
     add_message,
     delete_conversation,
+    update_conversation_title,
 )
 from src.database.memory import (
     get_user_memories,

@@ -26,6 +26,7 @@ from src.database import (  # noqa: F401 — re-export all public symbols
     get_conversation_messages,
     add_message,
     delete_conversation,
+    update_conversation_title,
     get_user_memories,
     set_user_memory,
     clear_user_memories,

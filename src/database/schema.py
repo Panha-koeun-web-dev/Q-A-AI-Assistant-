@@ -53,8 +53,13 @@ def _init_postgres():
                     user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     role            VARCHAR(16) NOT NULL,
                     content         TEXT NOT NULL,
+                    attachments     TEXT,
                     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+            """)
+            # Migration check: add attachments column if it doesn't exist
+            cur.execute("""
+                ALTER TABLE messages ADD COLUMN IF NOT EXISTS attachments TEXT;
             """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_memories (
@@ -109,9 +114,17 @@ def _init_sqlite():
                     user_id         INTEGER REFERENCES users(id) ON DELETE CASCADE,
                     role            TEXT NOT NULL,
                     content         TEXT NOT NULL,
+                    attachments     TEXT,
                     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            # SQLite migration check
+            cur = conn.cursor()
+            cur.execute("PRAGMA table_info(messages);")
+            cols = [row[1] for row in cur.fetchall()]
+            if "attachments" not in cols:
+                conn.execute("ALTER TABLE messages ADD COLUMN attachments TEXT;")
+            conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS user_memories (
                     id         INTEGER PRIMARY KEY AUTOINCREMENT,

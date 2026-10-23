@@ -9,7 +9,6 @@ Opens http://127.0.0.1:5000 automatically in your default browser.
 """
 
 import base64
-import cgi
 import io
 import json
 import os
@@ -21,10 +20,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:
+    import cgi
+except ImportError:
+    cgi = None
+
 from dotenv import load_dotenv
 
 from src import db
-from src.ai_service import query_openai, stream_query
+from src.ai_service import query_openai, stream_query, generate_conversation_title
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -336,7 +340,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                 conv = db.create_conversation(user_id, question[:40] or "New Chat")
                 conversation_id = conv["id"]
             if user_id and conversation_id:
-                db.add_message(user_id, conversation_id, "user", question)
+                db.add_message(user_id, conversation_id, "user", question, attachments=attachments)
 
             # Start SSE streaming response
             self.send_response(HTTPStatus.OK)
@@ -372,8 +376,23 @@ class RequestHandler(BaseHTTPRequestHandler):
                         self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode("utf-8"))
                         self.wfile.flush()
 
+                # Generate AI conversation title if new thread
+                new_title = None
+                if user_id and conversation_id:
+                    try:
+                        msgs = db.get_conversation_messages(user_id, conversation_id)
+                        if len(msgs) <= 2:
+                            new_title = generate_conversation_title(question)
+                            if new_title:
+                                db.update_conversation_title(conversation_id, new_title)
+                    except Exception:
+                        pass
+
                 # Signal completion with conversation metadata
-                meta = json.dumps({"conversation_id": conversation_id, "model": used_model})
+                meta_dict = {"conversation_id": conversation_id, "model": used_model}
+                if new_title:
+                    meta_dict["title"] = new_title
+                meta = json.dumps(meta_dict)
                 self.wfile.write(f"event: done\ndata: {meta}\n\n".encode("utf-8"))
                 self.wfile.flush()
 
@@ -392,6 +411,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             model_override = payload.get("model")
             system_override = payload.get("system_instructions")
             conversation_id = payload.get("conversation_id")
+            attachments = payload.get("attachments") or []
 
             if not question:
                 result = {"success": False, "error": "Question is empty."}
@@ -403,9 +423,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     conversation_id = conv["id"]
 
                 if user_id and conversation_id:
-                    db.add_message(user_id, conversation_id, "user", question)
-
-                attachments = payload.get("attachments") or []
+                    db.add_message(user_id, conversation_id, "user", question, attachments=attachments)
 
                 result = query_openai(
                     question=question,
@@ -419,6 +437,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if result.get("success") and user_id and conversation_id:
                     db.add_message(user_id, conversation_id, "assistant", result["answer"])
                     result["conversation_id"] = conversation_id
+                    try:
+                        msgs = db.get_conversation_messages(user_id, conversation_id)
+                        if len(msgs) <= 2:
+                            new_title = generate_conversation_title(question)
+                            if new_title:
+                                db.update_conversation_title(conversation_id, new_title)
+                                result["title"] = new_title
+                    except Exception:
+                        pass
 
             self._send_json(result)
 

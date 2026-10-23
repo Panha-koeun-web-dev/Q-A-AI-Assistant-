@@ -494,7 +494,7 @@
           chatContainer.innerHTML = '';
           state.history = [];
           data.messages.forEach(m => {
-            addMessage(m.role === 'user' ? 'You' : 'Q&A AI', m.content);
+            addMessage(m.role === 'user' ? 'You' : 'Q&A AI', m.content, m.attachments || null);
             state.history.push({ role: m.role, content: m.content });
           });
         }
@@ -645,6 +645,7 @@
         bubble.appendChild(textNode);
       } else {
         bubble.innerHTML = marked.parse(content);
+        renderMath(bubble);
         attachCopyButtons(bubble);
       }
 
@@ -734,17 +735,69 @@
       return bubble;
     }
 
+    // LaTeX / Math Rendering Helper
+    function renderMath(element) {
+      if (window.renderMathInElement && element) {
+        try {
+          renderMathInElement(element, {
+            delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\(', right: '\\)', display: false },
+              { left: '\\[', right: '\\]', display: true }
+            ],
+            throwOnError: false
+          });
+        } catch (_) {}
+      }
+    }
+
+    let currentAbortController = null;
+
+    function setGeneratingState(generating) {
+      state.isGenerating = generating;
+      if (generating) {
+        sendBtn.classList.add('btn-stop');
+        sendBtn.title = 'Stop Generating';
+        sendBtn.innerHTML = `
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="3" ry="3"></rect>
+          </svg>
+        `;
+        sendBtn.disabled = false;
+      } else {
+        sendBtn.classList.remove('btn-stop');
+        sendBtn.title = 'Submit Question';
+        sendBtn.innerHTML = `
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13"></line>
+            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+          </svg>
+        `;
+        sendBtn.disabled = false;
+      }
+    }
+
     async function submitQuestion() {
+      // If AI is currently generating and user clicks button, treat as STOP
+      if (state.isGenerating) {
+        if (currentAbortController) {
+          currentAbortController.abort();
+        }
+        return;
+      }
+
       const question = inputEl.value.trim();
       const hasAttachments = state.attachments && state.attachments.length > 0;
 
-      if ((!question && !hasAttachments) || state.isGenerating) return;
+      if (!question && !hasAttachments) return;
 
       const effectiveQuestion = question || "Please analyze the attached file/image.";
       const currentAttachments = [...state.attachments];
 
-      state.isGenerating = true;
-      sendBtn.disabled = true;
+      currentAbortController = new AbortController();
+      setGeneratingState(true);
+
       inputEl.value = '';
       inputEl.style.height = 'auto';
 
@@ -758,6 +811,9 @@
       const headers = { 'Content-Type': 'application/json' };
       if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
 
+      let bubble = null;
+      let rawText = '';
+
       try {
         const payloadAttachments = currentAttachments.map(att => ({
           name: att.name,
@@ -770,6 +826,7 @@
         const response = await fetch('/api/chat/stream', {
           method: 'POST',
           headers,
+          signal: currentAbortController.signal,
           body: JSON.stringify({
             question: effectiveQuestion,
             history: state.history,
@@ -783,12 +840,12 @@
         if (!response.ok || !response.body) throw new Error('Stream unavailable');
 
         removeTypingIndicator();
-        const bubble = addStreamingBubble();
+        bubble = addStreamingBubble();
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
-        let rawText = '';
         let buffer = '';
+        let currentEvent = 'message';
 
         while (true) {
           const { done, value } = await reader.read();
@@ -799,33 +856,76 @@
           buffer = lines.pop();
 
           for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6).trim();
+            const trimmed = line.trim();
+            if (!trimmed) {
+              currentEvent = 'message';
+              continue;
+            }
+
+            if (trimmed.startsWith('event:')) {
+              currentEvent = trimmed.slice(6).trim();
+              continue;
+            }
+
+            if (!trimmed.startsWith('data:')) continue;
+            const raw = trimmed.slice(5).trim();
             if (!raw) continue;
 
-            if (raw.startsWith('{')) {
+            // Handle metadata completion
+            if (currentEvent === 'done') {
               try {
                 const meta = JSON.parse(raw);
                 if (meta.conversation_id) {
                   state.currentConversationId = meta.conversation_id;
+                }
+                if (meta.title) {
+                  const existing = state.conversations.find(c => c.id === meta.conversation_id);
+                  if (existing) {
+                    existing.title = meta.title;
+                  }
+                  renderHistoryList();
+                } else {
                   loadConversations();
                 }
               } catch (_) {}
+              currentEvent = 'message';
               continue;
             }
 
+            // Handle error event
+            if (currentEvent === 'error') {
+              try {
+                const err = JSON.parse(raw);
+                bubble.innerHTML = `<div class="ai-error-banner">${err}</div>`;
+              } catch (_) {
+                bubble.innerHTML = `<div class="ai-error-banner">${raw}</div>`;
+              }
+              currentEvent = 'message';
+              continue;
+            }
+
+            // Model identifier event
+            if (currentEvent === 'model') {
+              currentEvent = 'message';
+              continue;
+            }
+
+            // Normal streaming text chunk
             try {
               const chunk = JSON.parse(raw);
               rawText += chunk;
               bubble.innerHTML = marked.parse(rawText);
+              renderMath(bubble);
               chatContainer.scrollTop = chatContainer.scrollHeight;
             } catch (_) {}
+            currentEvent = 'message';
           }
         }
 
         bubble.classList.remove('streaming');
         if (rawText) {
           bubble.innerHTML = marked.parse(rawText);
+          renderMath(bubble);
           attachCopyButtons(bubble);
         }
         chatContainer.scrollTop = chatContainer.scrollHeight;
@@ -837,10 +937,22 @@
 
       } catch (err) {
         removeTypingIndicator();
-        addMessage('Q&A AI', `⚠️ **Network Error:** Could not contact server. Please ensure the server is running.`);
+        if (err.name === 'AbortError') {
+          // Stream interrupted by user
+          if (bubble) {
+            bubble.classList.remove('streaming');
+            if (rawText) {
+              bubble.innerHTML = marked.parse(rawText);
+              renderMath(bubble);
+              attachCopyButtons(bubble);
+            }
+          }
+        } else {
+          addMessage('Q&A AI', `⚠️ **Network Error:** Could not contact server. Please ensure the server is running.`);
+        }
       } finally {
-        state.isGenerating = false;
-        sendBtn.disabled = false;
+        setGeneratingState(false);
+        currentAbortController = null;
         inputEl.focus();
       }
     }

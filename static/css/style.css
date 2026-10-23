@@ -733,6 +733,34 @@
       transform: none;
     }
 
+    .submit-btn.btn-stop {
+      background: linear-gradient(135deg, #ef4444, #dc2626) !important;
+      opacity: 1 !important;
+      cursor: pointer !important;
+    }
+
+    .submit-btn.btn-stop:hover {
+      transform: scale(1.06);
+      filter: brightness(1.15);
+    }
+
+    .ai-error-banner {
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #f87171;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .katex-display {
+      margin: 0.8em 0 !important;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding: 4px 0;
+    }
+
     .input-footer {
       display: flex;
       justify-content: flex-end;

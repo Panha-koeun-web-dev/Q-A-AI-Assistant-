@@ -105,9 +105,11 @@ def get_connection():
             )
         else:
             import psycopg2
+            from psycopg2.extras import RealDictCursor
             return psycopg2.connect(
                 host=PGHOST, port=PGPORT, dbname=PGDATABASE,
                 user=PGUSER, password=PGPASSWORD,
+                cursor_factory=RealDictCursor,
             )
     # SQLite fallback
     conn = sqlite3.connect(SQLITE_PATH, check_same_thread=False)
@@ -121,4 +123,7 @@ def fetchdict(cursor_or_row):
         return None
     if isinstance(cursor_or_row, dict):
         return cursor_or_row
-    return dict(cursor_or_row)
+    try:
+        return dict(cursor_or_row)
+    except Exception:
+        return cursor_or_row

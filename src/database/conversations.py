@@ -4,6 +4,7 @@ src/database/conversations.py
 Conversation thread and message management.
 Supports psycopg v3, psycopg2, and SQLite.
 """
+import json
 import secrets
 from datetime import datetime
 
@@ -15,6 +16,18 @@ def _ts(value) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+
+
+def _parse_attachments(raw_att):
+    """Safely deserialize attachments JSON from DB row."""
+    if not raw_att:
+        return []
+    if isinstance(raw_att, list):
+        return raw_att
+    try:
+        return json.loads(raw_att)
+    except Exception:
+        return []
 
 
 def get_user_conversations(user_id: int) -> list:
@@ -84,32 +97,37 @@ def get_conversation_messages(user_id: int, conversation_id: str) -> list:
         if HAS_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, role, content, created_at FROM messages "
+                    "SELECT id, role, content, attachments, created_at FROM messages "
                     "WHERE conversation_id = %s AND user_id = %s ORDER BY created_at ASC;",
                     (conversation_id, user_id),
                 )
                 rows = [fetchdict(r) for r in cur.fetchall()]
                 for r in rows:
                     r["created_at"] = _ts(r.get("created_at"))
+                    r["attachments"] = _parse_attachments(r.get("attachments"))
                 return rows
         else:
             with conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT id, role, content, created_at FROM messages "
+                    "SELECT id, role, content, attachments, created_at FROM messages "
                     "WHERE conversation_id = ? AND user_id = ? ORDER BY created_at ASC;",
                     (conversation_id, user_id),
                 )
-                return [dict(r) for r in cur.fetchall()]
+                rows = [dict(r) for r in cur.fetchall()]
+                for r in rows:
+                    r["attachments"] = _parse_attachments(r.get("attachments"))
+                return rows
     except Exception:
         return []
     finally:
         conn.close()
 
 
-def add_message(user_id: int, conversation_id: str, role: str, content: str):
+def add_message(user_id: int, conversation_id: str, role: str, content: str, attachments: list = None):
     """Appends a message to a conversation and updates its title/timestamp."""
     conn = get_connection()
+    att_json = json.dumps(attachments) if attachments else None
     try:
         if HAS_POSTGRES:
             with conn.cursor() as cur:
@@ -130,8 +148,9 @@ def add_message(user_id: int, conversation_id: str, role: str, content: str):
                     msg_count = row["msg_count"]
 
                 cur.execute(
-                    "INSERT INTO messages (conversation_id, user_id, role, content) VALUES (%s, %s, %s, %s);",
-                    (conversation_id, user_id, role, content),
+                    "INSERT INTO messages (conversation_id, user_id, role, content, attachments) "
+                    "VALUES (%s, %s, %s, %s, %s);",
+                    (conversation_id, user_id, role, content, att_json),
                 )
                 if role == "user" and msg_count == 0:
                     short_title = content.strip().split("\n")[0][:45]
@@ -161,8 +180,9 @@ def add_message(user_id: int, conversation_id: str, role: str, content: str):
                     msg_count = conv["msg_count"]
 
                 cur.execute(
-                    "INSERT INTO messages (conversation_id, user_id, role, content) VALUES (?, ?, ?, ?);",
-                    (conversation_id, user_id, role, content),
+                    "INSERT INTO messages (conversation_id, user_id, role, content, attachments) "
+                    "VALUES (?, ?, ?, ?, ?);",
+                    (conversation_id, user_id, role, content, att_json),
                 )
                 now = datetime.now().isoformat()
                 if role == "user" and msg_count == 0:
@@ -173,6 +193,34 @@ def add_message(user_id: int, conversation_id: str, role: str, content: str):
                     )
                 else:
                     cur.execute("UPDATE conversations SET updated_at = ? WHERE id = ?;", (now, conversation_id))
+    finally:
+        conn.close()
+
+
+def update_conversation_title(conversation_id: str, title: str) -> bool:
+    """Updates the conversation title in the database."""
+    title = (title or "").strip()[:80]
+    if not title:
+        return False
+    conn = get_connection()
+    try:
+        if HAS_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE conversations SET title = %s, updated_at = NOW() WHERE id = %s;",
+                    (title, conversation_id),
+                )
+                conn.commit()
+        else:
+            with conn:
+                now = datetime.now().isoformat()
+                conn.execute(
+                    "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?;",
+                    (title, now, conversation_id),
+                )
+        return True
+    except Exception:
+        return False
     finally:
         conn.close()
 

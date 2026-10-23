@@ -26,9 +26,9 @@ from src.document_service import process_attachment
 # Gemini models available via OpenAI-compatible endpoint
 # ---------------------------------------------------------------------------
 GEMINI_FALLBACK_MODELS = [
-    "gemini-3.8-flash",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
 ]
 
 # Groq fallback models
@@ -62,21 +62,92 @@ def get_ai_client(api_key: str, base_url: str) -> OpenAI:
 
 
 def extract_potential_memories(user_id: int, question: str):
-    """Heuristically extracts personal facts from user messages and stores them."""
+    """Heuristically extracts personal facts, preferences, and details from user messages."""
     lower = question.lower().strip()
-    if lower.startswith("my name is ") or "call me " in lower:
-        name = (
-            question.split("is ")[-1].split(".")[0].strip()
-            if "is " in lower
-            else question.split("call me ")[-1].split(".")[0].strip()
-        )
-        if len(name) < 30:
+
+    # Name extraction
+    if "my name is " in lower or "call me " in lower or lower.startswith("i am ") or lower.startswith("i'm "):
+        name = ""
+        if "my name is " in lower:
+            idx = lower.find("my name is ") + len("my name is ")
+            name = question[idx:].split(".")[0].strip()
+        elif "call me " in lower:
+            idx = lower.find("call me ") + len("call me ")
+            name = question[idx:].split(".")[0].strip()
+        elif lower.startswith("i am ") and len(lower.split()) <= 4:
+            name = question[5:].split(".")[0].strip()
+        elif lower.startswith("i'm ") and len(lower.split()) <= 4:
+            name = question[4:].split(".")[0].strip()
+
+        if name and 2 <= len(name) < 30 and not any(w in name.lower() for w in ["learning", "looking", "trying", "here", "ready"]):
             db.set_user_memory(user_id, "name", name.title())
-    elif "i prefer " in lower or "i like " in lower:
-        db.set_user_memory(user_id, f"preference_{int(time.time()) % 1000}", question.strip()[:100])
-    elif "i am learning " in lower:
-        learning = lower.split("i am learning ")[-1].split(".")[0].strip()
-        db.set_user_memory(user_id, "learning_topic", learning)
+
+    # Role / Profession
+    if "i work as " in lower or "my job is " in lower or "i am a developer" in lower or "i am a programmer" in lower or "i am an engineer" in lower:
+        role = ""
+        if "i work as " in lower:
+            idx = lower.find("i work as ") + len("i work as ")
+            role = question[idx:].split(".")[0].strip()
+        elif "my job is " in lower:
+            idx = lower.find("my job is ") + len("my job is ")
+            role = question[idx:].split(".")[0].strip()
+        else:
+            role = "Software Developer"
+        if role and len(role) < 50:
+            db.set_user_memory(user_id, "profession", role.capitalize())
+
+    # Language preference
+    if "please reply in " in lower or "respond in " in lower or "always answer in " in lower:
+        part = lower.split("reply in ")[-1] if "reply in " in lower else lower.split("respond in ")[-1] if "respond in " in lower else lower.split("answer in ")[-1]
+        lang = part.split()[0].replace(".", "").strip()
+        if len(lang) < 25:
+            db.set_user_memory(user_id, "preferred_language", lang.capitalize())
+
+    # Learning topic
+    if "i am learning " in lower or "i'm learning " in lower or "i study " in lower:
+        target = "i am learning " if "i am learning " in lower else "i'm learning " if "i'm learning " in lower else "i study "
+        learning = question[question.lower().index(target) + len(target):].split(".")[0].strip()
+        if 2 < len(learning) < 60:
+            db.set_user_memory(user_id, "learning_topic", learning)
+
+    # General Preferences
+    if "i prefer " in lower or "i like " in lower:
+        phrase = question.strip()
+        if len(phrase) < 120:
+            db.set_user_memory(user_id, "general_preference", phrase)
+
+
+def generate_conversation_title(question: str) -> str:
+    """Uses a lightweight LLM call to create a clean, 3-5 word conversation title."""
+    try:
+        load_dotenv(override=True)
+        api_key  = os.getenv("OPENAI_API_KEY", "").strip()
+        base_url = os.getenv("OPENAI_BASE_URL", "").strip() or None
+        model    = os.getenv("OPENAI_MODEL", "openai/gpt-oss-20b").strip()
+        if not api_key:
+            return question[:35].strip()
+
+        client = get_ai_client(api_key, base_url)
+        resp = client.chat.completions.create(
+            model=model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You create short conversation titles. Output ONLY 3 to 5 words summarizing the topic. No quotes, no markdown, no punctuation.",
+                },
+                {"role": "user", "content": f"Title for this conversation: {question[:150]}"},
+            ],
+            max_tokens=250,
+            temperature=0.3,
+        )
+        msg = resp.choices[0].message
+        raw_title = (msg.content or "").strip()
+        cleaned = raw_title.replace('"', "").replace("'", "").replace("#", "").strip()
+        # Clean any trailing periods or newlines
+        cleaned = cleaned.split("\n")[0].rstrip(".")
+        return cleaned[:50] if cleaned else question[:35].strip()
+    except Exception:
+        return question[:35].strip()
 
 
 def _build_messages(
