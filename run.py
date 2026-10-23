@@ -376,6 +376,12 @@ class RequestHandler(BaseHTTPRequestHandler):
                         self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode("utf-8"))
                         self.wfile.flush()
 
+                if not full_answer:
+                    err_msg = "⚠️ No response was received from the AI model. Please verify your API key and quota."
+                    self.wfile.write(f"event: error\ndata: {json.dumps(err_msg)}\n\n".encode("utf-8"))
+                    self.wfile.flush()
+                    return
+
                 # Generate AI conversation title if new thread
                 new_title = None
                 if user_id and conversation_id:

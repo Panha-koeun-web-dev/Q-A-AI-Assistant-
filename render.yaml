@@ -15,9 +15,9 @@ services:
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_BASE_URL
-        value: https://api.groq.com/openai/v1
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
       - key: OPENAI_MODEL
-        value: openai/gpt-oss-20b
+        value: gemini-3.5-flash
 
 databases:
   - name: qa-ai-database

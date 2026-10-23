@@ -8,7 +8,7 @@
       history: [],
       attachments: [],
       isGenerating: false,
-      model: 'openai/gpt-oss-20b',
+      model: localStorage.getItem('qa_ai_model') || 'gemini-3.5-flash',
       systemInstructions: `You are QA AI Assistant, built by Panha Koeun.
 - Your name is QA AI Assistant.
 - You were built and developed by Panha Koeun.
@@ -577,10 +577,15 @@
       closeMemoryModal();
     }
 
-    function openSettingsModal() { settingsModal.classList.add('active'); }
+    function openSettingsModal() {
+      const sel = document.getElementById('setting-model');
+      if (sel && state.model) sel.value = state.model;
+      settingsModal.classList.add('active');
+    }
     function closeSettingsModal() { settingsModal.classList.remove('active'); }
     function saveSettings() {
       state.model = document.getElementById('setting-model').value || state.model;
+      localStorage.setItem('qa_ai_model', state.model);
       state.systemInstructions = document.getElementById('setting-system').value;
       closeSettingsModal();
     }

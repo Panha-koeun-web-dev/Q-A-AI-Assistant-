@@ -26,9 +26,10 @@ from src.document_service import process_attachment
 # Gemini models available via OpenAI-compatible endpoint
 # ---------------------------------------------------------------------------
 GEMINI_FALLBACK_MODELS = [
-    "gemini-2.0-flash",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-pro-preview",
+    "gemini-pro-latest",
 ]
 
 # Groq fallback models
@@ -41,7 +42,7 @@ GROQ_FALLBACK_MODELS = [
 
 def _detect_provider(api_key: str, base_url: str) -> str:
     """Returns the active provider name: 'gemini', 'groq', or 'openai'."""
-    if base_url and "googleapis" in base_url:
+    if (base_url and ("googleapis" in base_url or "aistudio" in base_url)) or api_key.startswith("AQ.") or api_key.startswith("AIzaSy"):
         return "gemini"
     if api_key.startswith("gsk_") or (base_url and "groq" in base_url):
         return "groq"
@@ -50,9 +51,17 @@ def _detect_provider(api_key: str, base_url: str) -> str:
 
 def get_ai_client(api_key: str, base_url: str) -> OpenAI:
     """Creates an OpenAI-compatible client for the configured provider."""
+    # Auto-fix if someone pasted the AI Studio website URL into base_url
+    if base_url and ("aistudio.google.com" in base_url or not base_url.startswith("http")):
+        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
     # Auto-set Groq base URL if not already set
     if api_key.startswith("gsk_") and not base_url:
         base_url = "https://api.groq.com/openai/v1"
+    # Auto-set Gemini base URL if missing or not an API endpoint
+    elif (api_key.startswith("AQ.") or api_key.startswith("AIzaSy")) and (not base_url or "googleapis" not in base_url):
+        base_url = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
     return OpenAI(
         api_key=api_key or "missing-key",
         base_url=base_url or None,
@@ -246,7 +255,7 @@ def _get_models_to_try(provider: str, chosen_model: str, has_images: bool = Fals
             # qwen/qwen3.8-27b is Groq's active high-accuracy multimodal vision model
             return ["qwen/qwen3.8-27b"]
         elif provider == "gemini":
-            vision_models = ["gemini-3.8-flash", "gemini-2.0-flash"]
+            vision_models = ["gemini-3.5-flash", "gemini-3.1-pro-preview"]
             return [chosen_model] + [m for m in vision_models if m != chosen_model]
         else:
             vision_models = ["gpt-4o-mini", "gpt-4o"]
@@ -294,6 +303,7 @@ def stream_query(
     models       = _get_models_to_try(provider, chosen_model, has_images=has_images)
     client       = get_ai_client(api_key, base_url)
 
+    last_error = None
     for model_name in models:
         try:
             stream = client.chat.completions.create(
@@ -301,15 +311,27 @@ def stream_query(
                 messages=messages,
                 stream=True,
             )
-            yield f"__MODEL__{model_name}"   # first event: which model is responding
+            had_output = False
             for chunk in stream:
-                delta = chunk.choices[0].delta.content
+                delta = chunk.choices[0].delta.content if (chunk.choices and len(chunk.choices) > 0 and chunk.choices[0].delta) else None
                 if delta:
+                    if not had_output:
+                        yield f"__MODEL__{model_name}"   # first event: which model is responding
+                        had_output = True
                     yield delta
-            return  # success — stop trying models
 
-        except (NotFoundError, BadRequestError):
+            if had_output:
+                return  # success — stop trying models
+            # If 0 tokens yielded, try next fallback model
+            continue
+
+        except (NotFoundError, BadRequestError, RateLimitError) as err:
+            last_error = str(err)
             continue   # try next fallback model
+
+        except RateLimitError as err:
+            last_error = f"Rate limit on {model_name}: {err}"
+            continue   # try next fallback model (e.g. Flash if Pro quota reached)
 
         except AuthenticationError:
             yield ("__ERROR__⚠️ **Invalid API Key.** "
@@ -317,23 +339,19 @@ def stream_query(
                    "or https://console.groq.com/keys (Groq).")
             return
 
-        except RateLimitError as err:
-            yield f"__ERROR__⚠️ Rate limit exceeded: {err}"
-            return
-
         except APIConnectionError:
-            yield "__ERROR__⚠️ **Connection Error:** Cannot reach the AI server."
-            return
+            last_error = "Connection error"
+            continue
 
         except APIStatusError as err:
-            yield f"__ERROR__⚠️ **API Error ({err.status_code}):** {err.message}"
-            return
+            last_error = f"API Error ({err.status_code}): {err.message}"
+            continue
 
         except Exception as exc:
-            yield f"__ERROR__⚠️ **Unexpected Error:** {exc}"
-            return
+            last_error = f"Unexpected Error: {exc}"
+            continue
 
-    yield "__ERROR__⚠️ All models failed. Please check your API key and model settings."
+    yield f"__ERROR__⚠️ Could not get a response from AI models. Details: {last_error or 'All fallback models failed.'}"
 
 
 def query_openai(
@@ -369,7 +387,7 @@ def query_openai(
             response = client.chat.completions.create(model=model_name, messages=messages)
             answer   = response.choices[0].message.content or "No response."
             return {"success": True, "answer": answer, "model": model_name}
-        except (NotFoundError, BadRequestError) as err:
+        except (NotFoundError, BadRequestError, RateLimitError) as err:
             last_error = str(err)
             continue
         except AuthenticationError:

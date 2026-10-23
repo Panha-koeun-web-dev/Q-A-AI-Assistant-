@@ -15,11 +15,17 @@ API_KEY  = os.getenv("OPENAI_API_KEY", "").strip()
 BASE_URL = os.getenv("OPENAI_BASE_URL", "").strip() or None
 MODEL    = os.getenv("OPENAI_MODEL", "openai/gpt-oss-20b").strip()
 
+# Auto-fix if someone pasted the AI Studio website URL into BASE_URL
+if BASE_URL and "aistudio.google.com" in BASE_URL:
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
 # Auto-detect provider from key prefix
 if API_KEY.startswith("gsk_") and not BASE_URL:
     # Groq
     BASE_URL = "https://api.groq.com/openai/v1"
-# Gemini keys (AQ.) already carry BASE_URL in .env — nothing to auto-set
+elif (API_KEY.startswith("AQ.") or API_KEY.startswith("AIzaSy")) and (not BASE_URL or "googleapis" not in BASE_URL):
+    # Google Gemini OpenAI-compatible endpoint
+    BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 # PostgreSQL Database Configuration
 PGHOST = os.getenv("PGHOST", "localhost")
