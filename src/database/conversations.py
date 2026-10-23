@@ -2,13 +2,19 @@
 src/database/conversations.py
 ------------------------------
 Conversation thread and message management.
+Supports psycopg v3, psycopg2, and SQLite.
 """
 import secrets
 from datetime import datetime
 
-from psycopg2.extras import RealDictCursor
+from src.database.connection import HAS_POSTGRES, get_connection, fetchdict
 
-from src.database.connection import HAS_POSTGRES, get_connection
+
+def _ts(value) -> str:
+    """Convert datetime to ISO string if needed."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value
 
 
 def get_user_conversations(user_id: int) -> list:
@@ -16,18 +22,16 @@ def get_user_conversations(user_id: int) -> list:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, title, created_at, updated_at "
                     "FROM conversations WHERE user_id = %s ORDER BY updated_at DESC;",
                     (user_id,),
                 )
-                rows = cur.fetchall()
+                rows = [fetchdict(r) for r in cur.fetchall()]
                 for r in rows:
-                    if isinstance(r["created_at"], datetime):
-                        r["created_at"] = r["created_at"].isoformat()
-                    if isinstance(r["updated_at"], datetime):
-                        r["updated_at"] = r["updated_at"].isoformat()
+                    r["created_at"] = _ts(r.get("created_at"))
+                    r["updated_at"] = _ts(r.get("updated_at"))
                 return rows
         else:
             with conn:
@@ -50,18 +54,16 @@ def create_conversation(user_id: int, title: str = "New Chat") -> dict:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO conversations (id, user_id, title) VALUES (%s, %s, %s) "
                     "RETURNING id, title, created_at, updated_at;",
                     (conv_id, user_id, title),
                 )
-                conv = cur.fetchone()
+                conv = fetchdict(cur.fetchone())
                 conn.commit()
-                if isinstance(conv["created_at"], datetime):
-                    conv["created_at"] = conv["created_at"].isoformat()
-                if isinstance(conv["updated_at"], datetime):
-                    conv["updated_at"] = conv["updated_at"].isoformat()
+                conv["created_at"] = _ts(conv.get("created_at"))
+                conv["updated_at"] = _ts(conv.get("updated_at"))
                 return conv
         else:
             with conn:
@@ -80,16 +82,15 @@ def get_conversation_messages(user_id: int, conversation_id: str) -> list:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            with conn.cursor() as cur:
                 cur.execute(
                     "SELECT id, role, content, created_at FROM messages "
                     "WHERE conversation_id = %s AND user_id = %s ORDER BY created_at ASC;",
                     (conversation_id, user_id),
                 )
-                rows = cur.fetchall()
+                rows = [fetchdict(r) for r in cur.fetchall()]
                 for r in rows:
-                    if isinstance(r["created_at"], datetime):
-                        r["created_at"] = r["created_at"].isoformat()
+                    r["created_at"] = _ts(r.get("created_at"))
                 return rows
         else:
             with conn:
@@ -125,7 +126,8 @@ def add_message(user_id: int, conversation_id: str, role: str, content: str):
                     )
                     msg_count = 0
                 else:
-                    msg_count = conv[1]
+                    row = fetchdict(conv)
+                    msg_count = row["msg_count"]
 
                 cur.execute(
                     "INSERT INTO messages (conversation_id, user_id, role, content) VALUES (%s, %s, %s, %s);",
@@ -156,7 +158,7 @@ def add_message(user_id: int, conversation_id: str, role: str, content: str):
                     )
                     msg_count = 0
                 else:
-                    msg_count = conv[1]
+                    msg_count = conv["msg_count"]
 
                 cur.execute(
                     "INSERT INTO messages (conversation_id, user_id, role, content) VALUES (?, ?, ?, ?);",
@@ -191,4 +193,3 @@ def delete_conversation(user_id: int, conversation_id: str) -> bool:
         return False
     finally:
         conn.close()
-

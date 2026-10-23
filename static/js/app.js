@@ -1,4 +1,4 @@
-    const savedTheme = localStorage.getItem('qa_ai_theme') || 'dark';
+﻿    const savedTheme = localStorage.getItem('qa_ai_theme') || 'dark';
 
     const state = {
       user: null,
@@ -465,6 +465,38 @@
       if (indicator) indicator.remove();
     }
 
+    // Creates a live-updating AI bubble for streaming responses
+    function addStreamingBubble() {
+      if (emptyState) emptyState.style.display = 'none';
+
+      const row = document.createElement('div');
+      row.className = 'message-row ai-row';
+
+      const avatar = document.createElement('img');
+      avatar.className = 'avatar avatar-img';
+      avatar.src = '/logo.jpg';
+      avatar.alt = 'Q&A AI';
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'bubble-wrapper';
+
+      const senderLabel = document.createElement('div');
+      senderLabel.className = 'sender-name';
+      senderLabel.textContent = 'Q&A AI';
+      wrapper.appendChild(senderLabel);
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble streaming';
+      wrapper.appendChild(bubble);
+
+      row.appendChild(avatar);
+      row.appendChild(wrapper);
+      chatContainer.appendChild(row);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+
+      return bubble;
+    }
+
     async function submitQuestion() {
       const question = inputEl.value.trim();
       if (!question || state.isGenerating) return;
@@ -477,15 +509,15 @@
       addMessage('You', question);
       showTypingIndicator();
 
-      try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+      const headers = { 'Content-Type': 'application/json' };
+      if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
 
-        const response = await fetch('/api/chat', {
+      try {
+        const response = await fetch('/api/chat/stream', {
           method: 'POST',
-          headers: headers,
+          headers,
           body: JSON.stringify({
-            question: question,
+            question,
             history: state.history,
             model: state.model,
             system_instructions: state.systemInstructions,
@@ -493,22 +525,61 @@
           })
         });
 
-        const data = await response.json();
-        removeTypingIndicator();
+        if (!response.ok || !response.body) throw new Error('Stream unavailable');
 
-        if (data.success) {
-          if (data.conversation_id) {
-            state.currentConversationId = data.conversation_id;
-            loadConversations();
+        removeTypingIndicator();
+        const bubble = addStreamingBubble();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let rawText = '';
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const raw = line.slice(6).trim();
+            if (!raw) continue;
+
+            if (raw.startsWith('{')) {
+              try {
+                const meta = JSON.parse(raw);
+                if (meta.conversation_id) {
+                  state.currentConversationId = meta.conversation_id;
+                  loadConversations();
+                }
+              } catch (_) {}
+              continue;
+            }
+
+            try {
+              const chunk = JSON.parse(raw);
+              rawText += chunk;
+              bubble.innerHTML = marked.parse(rawText);
+              chatContainer.scrollTop = chatContainer.scrollHeight;
+            } catch (_) {}
           }
-          addMessage('Q&A AI', data.answer);
-          state.history.push({ role: 'user', content: question });
-          state.history.push({ role: 'assistant', content: data.answer });
-          if (state.history.length > 20) state.history = state.history.slice(-20);
-          loadMemoriesCount();
-        } else {
-          addMessage('Q&A AI', data.error || 'Failed to get answer.');
         }
+
+        bubble.classList.remove('streaming');
+        if (rawText) {
+          bubble.innerHTML = marked.parse(rawText);
+          attachCopyButtons(bubble);
+        }
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+
+        state.history.push({ role: 'user', content: question });
+        state.history.push({ role: 'assistant', content: rawText });
+        if (state.history.length > 20) state.history = state.history.slice(-20);
+        loadMemoriesCount();
+
       } catch (err) {
         removeTypingIndicator();
         addMessage('Q&A AI', `⚠️ **Network Error:** Could not contact server. Please ensure the server is running.`);

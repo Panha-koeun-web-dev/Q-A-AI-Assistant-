@@ -1,8 +1,8 @@
 """
 src/database/memory.py
 -----------------------
-User long-term memory — persists facts, preferences, and context
-across conversations to personalize AI responses.
+User long-term memory — persists facts, preferences, and context.
+Supports psycopg v3, psycopg2, and SQLite.
 """
 from datetime import datetime
 
@@ -16,12 +16,11 @@ def get_user_memories(user_id: int) -> dict:
         if HAS_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute("SELECT key, value FROM user_memories WHERE user_id = %s;", (user_id,))
-                return {row[0]: row[1] for row in cur.fetchall()}
+                return {row["key"]: row["value"] for row in cur.fetchall()}
         else:
-            with conn:
-                cur = conn.cursor()
-                cur.execute("SELECT key, value FROM user_memories WHERE user_id = ?;", (user_id,))
-                return {row[0]: row[1] for row in cur.fetchall()}
+            cur = conn.cursor()
+            cur.execute("SELECT key, value FROM user_memories WHERE user_id = ?;", (user_id,))
+            return {row["key"]: row["value"] for row in cur.fetchall()}
     except Exception:
         return {}
     finally:
@@ -73,4 +72,3 @@ def clear_user_memories(user_id: int):
                 conn.execute("DELETE FROM user_memories WHERE user_id = ?;", (user_id,))
     finally:
         conn.close()
-

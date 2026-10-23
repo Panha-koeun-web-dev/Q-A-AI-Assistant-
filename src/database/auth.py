@@ -2,13 +2,12 @@
 src/database/auth.py
 ---------------------
 User registration, login, session management, and password hashing.
+Supports psycopg v3, psycopg2, and SQLite.
 """
 import hashlib
 import secrets
 
-from psycopg2.extras import RealDictCursor
-
-from src.database.connection import HAS_POSTGRES, get_connection
+from src.database.connection import HAS_POSTGRES, get_connection, is_psycopg3, fetchdict
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +30,30 @@ def verify_password(password: str, stored_hash: str, stored_salt_hex: str) -> bo
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _cursor(conn):
+    """Returns a dict-returning cursor appropriate for the active driver."""
+    if is_psycopg3():
+        return conn.cursor()      # already uses dict_row from connection factory
+    if HAS_POSTGRES:
+        from psycopg2.extras import RealDictCursor
+        return conn.cursor(cursor_factory=RealDictCursor)
+    return conn.cursor()          # SQLite with Row factory
+
+
+def _pg_param(driver_is_pg3: bool) -> str:
+    """Returns %s (psycopg) or ? (SQLite)."""
+    return "%s" if HAS_POSTGRES else "?"
+
+
+def _p(n: int = 1) -> str:
+    """Shorthand: returns the right placeholder for current driver."""
+    return "%s" if HAS_POSTGRES else "?"
+
+
+# ---------------------------------------------------------------------------
 # Registration & Login
 # ---------------------------------------------------------------------------
 
@@ -46,40 +69,49 @@ def register_user(username: str, password: str, email: str = None) -> dict:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(%s);", (username,))
-                if cur.fetchone():
+            p = "%s"
+            with conn.cursor() as cur:
+                cur.execute(f"SELECT id FROM users WHERE LOWER(username) = LOWER({p});", (username,))
+                if fetchdict(cur.fetchone()):
                     return {"success": False, "error": "Username already exists. Please choose another."}
                 cur.execute(
-                    "INSERT INTO users (username, email, password_hash, password_salt) "
-                    "VALUES (%s, %s, %s, %s) RETURNING id, username, email;",
+                    f"INSERT INTO users (username, email, password_hash, password_salt) "
+                    f"VALUES ({p},{p},{p},{p}) RETURNING id, username, email;",
                     (username, email or None, pwd_hash, salt_hex),
                 )
-                user = cur.fetchone()
+                user = fetchdict(cur.fetchone())
                 token = secrets.token_hex(32)
-                cur.execute(
-                    "INSERT INTO sessions (token, user_id, expires_at) "
-                    "VALUES (%s, %s, NOW() + INTERVAL '30 days');",
-                    (token, user["id"]),
-                )
-                conn.commit()
+                if is_psycopg3():
+                    cur.execute(
+                        f"INSERT INTO sessions (token, user_id, expires_at) "
+                        f"VALUES ({p},{p}, NOW() + INTERVAL '30 days');",
+                        (token, user["id"]),
+                    )
+                    conn.commit()
+                else:
+                    cur.execute(
+                        f"INSERT INTO sessions (token, user_id, expires_at) "
+                        f"VALUES ({p},{p}, NOW() + INTERVAL '30 days');",
+                        (token, user["id"]),
+                    )
+                    conn.commit()
                 return {"success": True, "token": token,
                         "user": {"id": user["id"], "username": user["username"], "email": user["email"]}}
         else:
+            p = "?"
             with conn:
                 cur = conn.cursor()
-                cur.execute("SELECT id FROM users WHERE LOWER(username) = LOWER(?);", (username,))
+                cur.execute(f"SELECT id FROM users WHERE LOWER(username) = LOWER({p});", (username,))
                 if cur.fetchone():
                     return {"success": False, "error": "Username already exists. Please choose another."}
                 cur.execute(
-                    "INSERT INTO users (username, email, password_hash, password_salt) VALUES (?, ?, ?, ?);",
+                    f"INSERT INTO users (username, email, password_hash, password_salt) VALUES ({p},{p},{p},{p});",
                     (username, email or None, pwd_hash, salt_hex),
                 )
                 user_id = cur.lastrowid
                 token = secrets.token_hex(32)
                 conn.execute(
-                    "INSERT INTO sessions (token, user_id, expires_at) "
-                    "VALUES (?, ?, datetime('now', '+30 days'));",
+                    f"INSERT INTO sessions (token, user_id, expires_at) VALUES ({p},{p}, datetime('now', '+30 days'));",
                     (token, user_id),
                 )
                 return {"success": True, "token": token,
@@ -96,30 +128,32 @@ def login_user(username: str, password: str) -> dict:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            p = "%s"
+            with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, username, email, password_hash, password_salt "
-                    "FROM users WHERE LOWER(username) = LOWER(%s);",
+                    f"SELECT id, username, email, password_hash, password_salt "
+                    f"FROM users WHERE LOWER(username) = LOWER({p});",
                     (username,),
                 )
-                user = cur.fetchone()
+                user = fetchdict(cur.fetchone())
                 if not user or not verify_password(password, user["password_hash"], user["password_salt"]):
                     return {"success": False, "error": "Invalid username or password."}
                 token = secrets.token_hex(32)
                 cur.execute(
-                    "INSERT INTO sessions (token, user_id, expires_at) "
-                    "VALUES (%s, %s, NOW() + INTERVAL '30 days');",
+                    f"INSERT INTO sessions (token, user_id, expires_at) "
+                    f"VALUES ({p},{p}, NOW() + INTERVAL '30 days');",
                     (token, user["id"]),
                 )
                 conn.commit()
                 return {"success": True, "token": token,
                         "user": {"id": user["id"], "username": user["username"], "email": user["email"]}}
         else:
+            p = "?"
             with conn:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT id, username, email, password_hash, password_salt "
-                    "FROM users WHERE LOWER(username) = LOWER(?);",
+                    f"SELECT id, username, email, password_hash, password_salt "
+                    f"FROM users WHERE LOWER(username) = LOWER({p});",
                     (username,),
                 )
                 row = cur.fetchone()
@@ -127,8 +161,7 @@ def login_user(username: str, password: str) -> dict:
                     return {"success": False, "error": "Invalid username or password."}
                 token = secrets.token_hex(32)
                 conn.execute(
-                    "INSERT INTO sessions (token, user_id, expires_at) "
-                    "VALUES (?, ?, datetime('now', '+30 days'));",
+                    f"INSERT INTO sessions (token, user_id, expires_at) VALUES ({p},{p}, datetime('now', '+30 days'));",
                     (token, row["id"]),
                 )
                 return {"success": True, "token": token,
@@ -150,14 +183,16 @@ def get_user_by_token(token: str) -> dict | None:
     conn = get_connection()
     try:
         if HAS_POSTGRES:
-            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+            p = "%s"
+            expires_check = "NOW()" if True else "datetime('now')"
+            with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT u.id, u.username, u.email FROM sessions s "
-                    "JOIN users u ON s.user_id = u.id "
-                    "WHERE s.token = %s AND s.expires_at > NOW();",
+                    f"SELECT u.id, u.username, u.email FROM sessions s "
+                    f"JOIN users u ON s.user_id = u.id "
+                    f"WHERE s.token = {p} AND s.expires_at > NOW();",
                     (token,),
                 )
-                return cur.fetchone()
+                return fetchdict(cur.fetchone())
         else:
             with conn:
                 cur = conn.cursor()
@@ -193,4 +228,3 @@ def logout_user(token: str) -> bool:
         return False
     finally:
         conn.close()
-

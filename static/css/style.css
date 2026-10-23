@@ -1,4 +1,4 @@
-    :root {
+﻿    :root {
       --bg-main: #090d16;
       --bg-sidebar: #0b111c;
       --bg-card: #111726;
@@ -470,6 +470,20 @@
       color: var(--text-main);
       border-bottom-left-radius: 3px;
       box-shadow: var(--card-shadow);
+    }
+
+    /* Streaming cursor while tokens are arriving */
+    .bubble.streaming::after {
+      content: 'u25‌‌‌▋';
+      display: inline-block;
+      animation: blink-cursor 0.7s step-end infinite;
+      color: var(--accent);
+      margin-left: 2px;
+    }
+
+    @keyframes blink-cursor {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
     }
 
     .sender-name {
