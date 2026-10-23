@@ -491,20 +491,23 @@ def find_available_port(start_port: int = 5000, max_attempts: int = 10) -> int:
 
 
 def main():
-    port = find_available_port(5000)
-    server_address = ("127.0.0.1", port)
-    httpd = ThreadingHTTPServer(server_address, RequestHandler)
-    url = f"http://127.0.0.1:{port}"
+    # Cloud environments like Render provide PORT and require 0.0.0.0 binding
+    port_env = os.getenv("PORT")
+    is_cloud = bool(os.getenv("RENDER") or port_env)
 
-    #print("=" * 60)
+    port = int(port_env) if port_env else find_available_port(5000)
+    host = "0.0.0.0" if is_cloud else "127.0.0.1"
+    server_address = (host, port)
+    httpd = ThreadingHTTPServer(server_address, RequestHandler)
+    url = f"http://localhost:{port}" if is_cloud else f"http://127.0.0.1:{port}"
+
     print("              Q&A AI Assistant ")
-    #print("=" * 60)
-    print(f"  Server : {url}")
+    print(f"  Server : {url} (Host: {host}:{port})")
     print(f"  Model  : {MODEL}")
     print("  Press Ctrl+C to stop.")
-    #print("=" * 60)
 
-    threading.Timer(0.8, lambda: webbrowser.open(url)).start()
+    if not is_cloud:
+        threading.Timer(0.8, lambda: webbrowser.open(url)).start()
 
     try:
         httpd.serve_forever()

@@ -7,11 +7,12 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-PGHOST     = os.getenv("PGHOST", "localhost")
-PGPORT     = int(os.getenv("PGPORT", "5432"))
-PGDATABASE = os.getenv("PGDATABASE", "q&a_ai_database")
-PGUSER     = os.getenv("PGUSER", "postgres")
-PGPASSWORD = os.getenv("PGPASSWORD", "")
+PGHOST       = os.getenv("PGHOST", "localhost")
+PGPORT       = int(os.getenv("PGPORT", "5432"))
+PGDATABASE   = os.getenv("PGDATABASE", "q&a_ai_database")
+PGUSER       = os.getenv("PGUSER", "postgres")
+PGPASSWORD   = os.getenv("PGPASSWORD", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
 SQLITE_PATH = str(Path(__file__).resolve().parent.parent.parent / "qa_ai.db")
 
@@ -57,7 +58,7 @@ def is_psycopg2() -> bool:
 
 def ensure_database_exists():
     """Creates the PostgreSQL database if it does not already exist."""
-    if not HAS_POSTGRES or PGDATABASE.lower() == "postgres":
+    if DATABASE_URL or not HAS_POSTGRES or PGDATABASE.lower() == "postgres":
         return
     try:
         if is_psycopg3():
@@ -96,6 +97,15 @@ def ensure_database_exists():
 def get_connection():
     """Returns an active database connection (PostgreSQL or SQLite fallback)."""
     if HAS_POSTGRES:
+        if DATABASE_URL:
+            if is_psycopg3():
+                import psycopg
+                return psycopg.connect(DATABASE_URL, row_factory=_pg3_dict_row)
+            else:
+                import psycopg2
+                from psycopg2.extras import RealDictCursor
+                return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+
         if is_psycopg3():
             import psycopg
             return psycopg.connect(
