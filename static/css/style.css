@@ -887,3 +887,162 @@
         display: block;
       }
     }
+
+
+    /* ==========================================================================
+       File & Image Attachment Styles
+       ========================================================================== */
+    .attach-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--text-muted);
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-right: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .attach-btn:hover {
+      color: var(--accent);
+      background: rgba(37, 99, 235, 0.1);
+      border-color: rgba(37, 99, 235, 0.2);
+    }
+
+    .attach-btn:active {
+      transform: scale(0.95);
+    }
+
+    .input-wrapper.dragover .input-bar {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+      background: rgba(37, 99, 235, 0.05);
+    }
+
+    /* Attachment Preview Strip above Input Bar */
+    .attachment-preview {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-card);
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      margin-bottom: 8px;
+      max-height: 140px;
+      overflow-y: auto;
+    }
+
+    .attachment-item {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--bg-main);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 4px 8px;
+      font-size: 0.8rem;
+      color: var(--text-main);
+      animation: fadeIn 0.15s ease;
+    }
+
+    .attachment-item-img {
+      padding: 3px;
+      border-radius: 8px;
+      overflow: hidden;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-card);
+    }
+
+    .attachment-item-img img {
+      width: 48px;
+      height: 48px;
+      object-fit: cover;
+      border-radius: 6px;
+      display: block;
+    }
+
+    .attachment-item .remove-btn {
+      background: rgba(239, 68, 68, 0.15);
+      border: none;
+      color: #ef4444;
+      cursor: pointer;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      line-height: 1;
+      padding: 0;
+      margin-left: 4px;
+      transition: background 0.15s;
+    }
+
+    .attachment-item .remove-btn:hover {
+      background: #ef4444;
+      color: #ffffff;
+    }
+
+    .attachment-file-name {
+      max-width: 140px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+
+    .attachment-file-size {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+    }
+
+    /* Attachments inside User Chat Bubble */
+    .bubble-attachments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .bubble-attach-img {
+      max-width: 220px;
+      max-height: 200px;
+      border-radius: 8px;
+      object-fit: cover;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      cursor: pointer;
+      transition: transform 0.2s;
+    }
+
+    .bubble-attach-img:hover {
+      transform: scale(1.02);
+    }
+
+    .bubble-attach-file {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255, 255, 255, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      color: #ffffff;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.96); }
+      to { opacity: 1; transform: scale(1); }
+    }

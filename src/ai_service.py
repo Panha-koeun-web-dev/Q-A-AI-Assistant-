@@ -20,6 +20,7 @@ from openai import (
 
 from src import db
 from src.config import DEFAULT_SYSTEM_INSTRUCTIONS
+from src.document_service import process_attachment
 
 # ---------------------------------------------------------------------------
 # Gemini models available via OpenAI-compatible endpoint
@@ -78,8 +79,21 @@ def extract_potential_memories(user_id: int, question: str):
         db.set_user_memory(user_id, "learning_topic", learning)
 
 
-def _build_messages(question: str, history: list, system_instructions: str, user_id: int) -> list:
-    """Builds the message list with system prompt, history, and current question."""
+def _build_messages(
+    question: str,
+    history: list,
+    system_instructions: str,
+    user_id: int,
+    attachments: list = None,
+    provider: str = "openai"
+) -> list:
+    """Builds the message list with system prompt, history, current question, and parsed attachments.
+
+    Uses document_service to extract text from:
+    - PDFs, Word (.docx), Excel (.xlsx), CSV, and code/text files
+    - Images via Windows native OCR + metadata
+    - Feeds multimodal image_url to providers supporting vision (Gemini / OpenAI)
+    """
     base_sys = system_instructions or DEFAULT_SYSTEM_INSTRUCTIONS
 
     if user_id:
@@ -93,18 +107,80 @@ def _build_messages(question: str, history: list, system_instructions: str, user
     else:
         active_sys = base_sys
 
+    # Add instruction for attachments if present
+    if attachments:
+        active_sys += (
+            "\n\n[ATTACHED FILES INSTRUCTION]:\n"
+            "The user has attached files and/or images to this message. "
+            "All extracted text, documents, code, tables, and image OCR text are provided below. "
+            "Analyze them carefully and answer the user's question accurately based on the contents."
+        )
+
     messages = [{"role": "system", "content": active_sys}]
     for item in (history or []):
         role    = item.get("role", "user")
         content = item.get("content", "")
         if role in ("user", "assistant") and content:
             messages.append({"role": role, "content": content})
-    messages.append({"role": "user", "content": question})
+
+    # Process each attachment via document_service
+    attachment_blocks = []
+    vision_image_urls = []
+
+    for raw_att in (attachments or []):
+        processed = process_attachment(raw_att)
+        name = processed.get("name", "File")
+        is_img = processed.get("is_image", False)
+        text_content = processed.get("extracted_text", "")
+
+        if is_img:
+            if text_content and "(No text was detected" not in text_content:
+                block = f"=== [ATTACHED IMAGE: {name}] ===\n{text_content}\n================================="
+                attachment_blocks.append(block)
+
+            # Send image data directly to multimodal vision models (Groq, Gemini, OpenAI)
+            if processed.get("data"):
+                mime_type = processed.get("type") or "image/jpeg"
+                vision_image_urls.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime_type};base64,{processed['data']}"}
+                })
+        else:
+            block = f"=== [ATTACHED FILE: {name}] ===\n{text_content}\n================================"
+            attachment_blocks.append(block)
+
+    # Compose effective question text
+    if attachment_blocks:
+        attachments_context = "\n\n".join(attachment_blocks)
+        effective_question = f"{attachments_context}\n\n[User Question / Instruction]:\n{question}"
+    else:
+        effective_question = question
+
+    # If provider supports vision and we have image URLs
+    if vision_image_urls:
+        content = [{"type": "text", "text": effective_question}] + vision_image_urls
+        messages.append({"role": "user", "content": content})
+    else:
+        messages.append({"role": "user", "content": effective_question})
+
     return messages
 
 
-def _get_models_to_try(provider: str, chosen_model: str) -> list:
-    """Returns an ordered list of models to try, with fallbacks."""
+def _get_models_to_try(provider: str, chosen_model: str, has_images: bool = False) -> list:
+    """Returns an ordered list of models to try, with fallbacks.
+    When images are attached, routes directly to active multimodal vision models.
+    """
+    if has_images:
+        if provider == "groq":
+            # qwen/qwen3.8-27b is Groq's active high-accuracy multimodal vision model
+            return ["qwen/qwen3.8-27b"]
+        elif provider == "gemini":
+            vision_models = ["gemini-3.8-flash", "gemini-2.0-flash"]
+            return [chosen_model] + [m for m in vision_models if m != chosen_model]
+        else:
+            vision_models = ["gpt-4o-mini", "gpt-4o"]
+            return [chosen_model] + [m for m in vision_models if m != chosen_model]
+
     models = [chosen_model]
     fallbacks = {
         "gemini": GEMINI_FALLBACK_MODELS,
@@ -122,11 +198,14 @@ def stream_query(
     model_override: str = None,
     system_instructions: str = None,
     user_id: int = None,
+    attachments: list = None,
 ):
     """
     Generator: yields text chunks as they arrive from the AI (streaming).
     Each yielded value is a string token fragment.
     Raises on unrecoverable errors (caller should catch and send error event).
+
+    attachments: optional list of dicts with keys name, type, data (base64 str), text (str or None).
     """
     load_dotenv(override=True)
     api_key       = os.getenv("OPENAI_API_KEY", "").strip()
@@ -139,8 +218,9 @@ def stream_query(
 
     provider     = _detect_provider(api_key, base_url)
     chosen_model = model_override or default_model
-    messages     = _build_messages(question, history, system_instructions, user_id)
-    models       = _get_models_to_try(provider, chosen_model)
+    has_images   = any(att.get("data") for att in (attachments or []))
+    messages     = _build_messages(question, history, system_instructions, user_id, attachments, provider=provider)
+    models       = _get_models_to_try(provider, chosen_model, has_images=has_images)
     client       = get_ai_client(api_key, base_url)
 
     for model_name in models:
@@ -191,6 +271,7 @@ def query_openai(
     model_override: str = None,
     system_instructions: str = None,
     user_id: int = None,
+    attachments: list = None,
 ) -> dict:
     """
     Non-streaming fallback — collects the full streamed response and returns it as a dict.
@@ -206,8 +287,9 @@ def query_openai(
 
     provider     = _detect_provider(api_key, base_url)
     chosen_model = model_override or default_model
-    messages     = _build_messages(question, history, system_instructions, user_id)
-    models       = _get_models_to_try(provider, chosen_model)
+    has_images   = any(att.get("data") for att in (attachments or []))
+    messages     = _build_messages(question, history, system_instructions, user_id, attachments, provider=provider)
+    models       = _get_models_to_try(provider, chosen_model, has_images=has_images)
     client       = get_ai_client(api_key, base_url)
     last_error   = None
 

@@ -1,4 +1,4 @@
-﻿    const savedTheme = localStorage.getItem('qa_ai_theme') || 'dark';
+    const savedTheme = localStorage.getItem('qa_ai_theme') || 'dark';
 
     const state = {
       user: null,
@@ -6,6 +6,7 @@
       currentConversationId: null,
       conversations: [],
       history: [],
+      attachments: [],
       isGenerating: false,
       model: 'openai/gpt-oss-20b',
       systemInstructions: `You are Q&A AI, an intelligent, accurate, and concise question-answering assistant.
@@ -22,6 +23,10 @@
     const emptyState = document.getElementById('empty-state');
     const inputEl = document.getElementById('question-input');
     const sendBtn = document.getElementById('send-btn');
+    const attachBtn = document.getElementById('attach-btn');
+    const fileInput = document.getElementById('file-input');
+    const attachmentPreview = document.getElementById('attachment-preview');
+    const dropZone = document.getElementById('drop-zone');
     const themeBtn = document.getElementById('theme-btn');
     const settingsBtn = document.getElementById('settings-btn');
     const settingsModal = document.getElementById('settings-modal');
@@ -94,12 +99,214 @@
       sidebarBackdrop.addEventListener('click', closeSidebarMobile);
     }
 
+    // File Attachment Event Listeners
+    if (attachBtn && fileInput) {
+      attachBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        fileInput.click();
+      });
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+          handleFiles(e.target.files);
+          fileInput.value = '';
+        }
+      });
+    }
+
+    // Global Drag and Drop & Paste
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (dropZone) dropZone.classList.add('dragover');
+    });
+
+    window.addEventListener('dragleave', (e) => {
+      if (e.clientX <= 0 || e.clientY <= 0) {
+        if (dropZone) dropZone.classList.remove('dragover');
+      }
+    });
+
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (dropZone) dropZone.classList.remove('dragover');
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFiles(e.dataTransfer.files);
+      }
+    });
+
+    inputEl.addEventListener('paste', (e) => {
+      const items = (e.clipboardData || e.originalEvent?.clipboardData)?.items;
+      if (!items) return;
+      const files = [];
+      for (const item of items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+      if (files.length > 0) {
+        handleFiles(files);
+      }
+    });
+
     themeBtn.addEventListener('click', () => {
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', state.theme);
       themeBtn.textContent = state.theme === 'dark' ? '🌙' : '☀️';
       localStorage.setItem('qa_ai_theme', state.theme);
     });
+
+    // =========================================================================
+    // Attachment Handling Logic
+    // =========================================================================
+    const MAX_ATTACHMENTS = 4;
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    async function handleFiles(fileList) {
+      const files = Array.from(fileList);
+      for (const file of files) {
+        if (state.attachments.length >= MAX_ATTACHMENTS) {
+          alert(`You can attach a maximum of ${MAX_ATTACHMENTS} files per message.`);
+          break;
+        }
+
+        if (file.size > MAX_FILE_SIZE) {
+          alert(`File "${file.name}" exceeds the 10 MB size limit.`);
+          continue;
+        }
+
+        const ext = file.name.includes('.') ? file.name.split('.').pop().toLowerCase() : '';
+        const isImage = (file.type && file.type.startsWith('image/')) || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'].includes(ext);
+        const binaryDocExtensions = ['pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt'];
+        const textExtensions = ['txt', 'py', 'js', 'html', 'css', 'json', 'md', 'csv', 'tsv', 'sql', 'xml', 'yaml', 'yml', 'sh', 'ts', 'jsx', 'tsx', 'php', 'c', 'cpp', 'h', 'java', 'go', 'rs', 'log', 'env'];
+
+        let fileIcon = '📄';
+        if (ext === 'pdf') fileIcon = '📕';
+        else if (['doc', 'docx'].includes(ext)) fileIcon = '📘';
+        else if (['xls', 'xlsx', 'csv'].includes(ext)) fileIcon = '📊';
+        else if (['py', 'js', 'ts', 'html', 'css', 'json', 'sql', 'php', 'java', 'cpp'].includes(ext)) fileIcon = '💻';
+
+        if (isImage) {
+          try {
+            const dataUrl = await readFileAsDataURL(file);
+            const base64Data = dataUrl.split(',')[1];
+            state.attachments.push({
+              name: file.name,
+              type: file.type || 'image/jpeg',
+              size: file.size,
+              data: base64Data,
+              text: null,
+              previewUrl: dataUrl,
+              isImage: true,
+              icon: '🖼️'
+            });
+          } catch (err) {
+            console.error('Failed to read image:', err);
+          }
+        } else if (binaryDocExtensions.includes(ext) || file.type.includes('pdf') || file.type.includes('document') || file.type.includes('sheet')) {
+          // Documents (PDF, Word, Excel) — read as base64 for backend document_service extraction
+          try {
+            const dataUrl = await readFileAsDataURL(file);
+            const base64Data = dataUrl.split(',')[1];
+            state.attachments.push({
+              name: file.name,
+              type: file.type || 'application/octet-stream',
+              size: file.size,
+              data: base64Data,
+              text: null,
+              previewUrl: null,
+              isImage: false,
+              icon: fileIcon
+            });
+          } catch (err) {
+            console.error('Failed to read document:', err);
+          }
+        } else {
+          // Text, code, config files
+          try {
+            const textContent = await readFileAsText(file);
+            state.attachments.push({
+              name: file.name,
+              type: file.type || 'text/plain',
+              size: file.size,
+              data: null,
+              text: textContent,
+              previewUrl: null,
+              isImage: false,
+              icon: fileIcon
+            });
+          } catch (err) {
+            console.error('Failed to read file:', err);
+          }
+        }
+      }
+      renderAttachmentPreviews();
+    }
+
+    function readFileAsDataURL(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function readFileAsText(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsText(file);
+      });
+    }
+
+    function removeAttachment(index) {
+      state.attachments.splice(index, 1);
+      renderAttachmentPreviews();
+    }
+    window.removeAttachment = removeAttachment;
+
+    function renderAttachmentPreviews() {
+      if (!attachmentPreview) return;
+      if (state.attachments.length === 0) {
+        attachmentPreview.style.display = 'none';
+        attachmentPreview.innerHTML = '';
+        inputEl.placeholder = 'Ask Q&A AI any question or add files/images... (Press Enter to submit)';
+        return;
+      }
+
+      attachmentPreview.style.display = 'flex';
+      attachmentPreview.innerHTML = '';
+      inputEl.placeholder = `📎 ${state.attachments.length} file(s) attached: type your question or press Enter...`;
+
+      state.attachments.forEach((att, idx) => {
+        const item = document.createElement('div');
+        item.className = 'attachment-item';
+
+        if (att.isImage && att.previewUrl) {
+          item.classList.add('attachment-item-img');
+          item.innerHTML = `
+            <img src="${att.previewUrl}" alt="${att.name}" title="${att.name} (${formatFileSize(att.size)})">
+            <button type="button" class="remove-btn" title="Remove" onclick="removeAttachment(${idx})">✕</button>
+          `;
+        } else {
+          item.innerHTML = `
+            <span>${att.icon || '📄'}</span>
+            <span class="attachment-file-name" title="${att.name}">${att.name}</span>
+            <span class="attachment-file-size">${formatFileSize(att.size)}</span>
+            <button type="button" class="remove-btn" title="Remove" onclick="removeAttachment(${idx})">✕</button>
+          `;
+        }
+        attachmentPreview.appendChild(item);
+      });
+    }
 
     // Authentication Logic
     async function checkAuth() {
@@ -259,6 +466,8 @@
       closeSidebarMobile();
       state.currentConversationId = null;
       state.history = [];
+      state.attachments = [];
+      renderAttachmentPreviews();
       chatContainer.innerHTML = '';
       chatContainer.appendChild(emptyState);
       emptyState.style.display = 'block';
@@ -374,7 +583,7 @@
     }
 
     // Chat rendering
-    function addMessage(sender, content) {
+    function addMessage(sender, content, attachments = null) {
       if (emptyState) emptyState.style.display = 'none';
 
       const isUser = (sender === 'You');
@@ -404,8 +613,33 @@
       const bubble = document.createElement('div');
       bubble.className = 'bubble';
 
+      // Render attachments inside user bubble if present
+      if (isUser && attachments && attachments.length > 0) {
+        const attContainer = document.createElement('div');
+        attContainer.className = 'bubble-attachments';
+        attachments.forEach(att => {
+          if (att.isImage && (att.previewUrl || att.data)) {
+            const img = document.createElement('img');
+            img.className = 'bubble-attach-img';
+            img.src = att.previewUrl || `data:${att.type};base64,${att.data}`;
+            img.alt = att.name;
+            img.title = att.name;
+            img.onclick = () => window.open(img.src, '_blank');
+            attContainer.appendChild(img);
+          } else {
+            const chip = document.createElement('div');
+            chip.className = 'bubble-attach-file';
+            chip.innerHTML = `${att.icon || '📄'} <span>${att.name}</span> <small>(${formatFileSize(att.size)})</small>`;
+            attContainer.appendChild(chip);
+          }
+        });
+        bubble.appendChild(attContainer);
+      }
+
       if (isUser) {
-        bubble.textContent = content;
+        const textNode = document.createElement('div');
+        textNode.textContent = content;
+        bubble.appendChild(textNode);
       } else {
         bubble.innerHTML = marked.parse(content);
         attachCopyButtons(bubble);
@@ -424,7 +658,7 @@
       const preBlocks = container.querySelectorAll('pre');
       preBlocks.forEach((pre) => {
         const code = pre.querySelector('code');
-        const lang = (code.className.match(/language-(\\w+)/) || [, 'code'])[1];
+        const lang = (code.className.match(/language-(\w+)/) || [, 'code'])[1];
 
         const header = document.createElement('div');
         header.className = 'code-header';
@@ -499,29 +733,47 @@
 
     async function submitQuestion() {
       const question = inputEl.value.trim();
-      if (!question || state.isGenerating) return;
+      const hasAttachments = state.attachments && state.attachments.length > 0;
+
+      if ((!question && !hasAttachments) || state.isGenerating) return;
+
+      const effectiveQuestion = question || "Please analyze the attached file/image.";
+      const currentAttachments = [...state.attachments];
 
       state.isGenerating = true;
       sendBtn.disabled = true;
       inputEl.value = '';
       inputEl.style.height = 'auto';
 
-      addMessage('You', question);
+      // Clear pending attachments from input area
+      state.attachments = [];
+      renderAttachmentPreviews();
+
+      addMessage('You', effectiveQuestion, currentAttachments);
       showTypingIndicator();
 
       const headers = { 'Content-Type': 'application/json' };
       if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
 
       try {
+        const payloadAttachments = currentAttachments.map(att => ({
+          name: att.name,
+          type: att.type,
+          size: att.size,
+          data: att.data,
+          text: att.text
+        }));
+
         const response = await fetch('/api/chat/stream', {
           method: 'POST',
           headers,
           body: JSON.stringify({
-            question,
+            question: effectiveQuestion,
             history: state.history,
             model: state.model,
             system_instructions: state.systemInstructions,
-            conversation_id: state.currentConversationId
+            conversation_id: state.currentConversationId,
+            attachments: payloadAttachments
           })
         });
 
@@ -575,7 +827,7 @@
         }
         chatContainer.scrollTop = chatContainer.scrollHeight;
 
-        state.history.push({ role: 'user', content: question });
+        state.history.push({ role: 'user', content: effectiveQuestion });
         state.history.push({ role: 'assistant', content: rawText });
         if (state.history.length > 20) state.history = state.history.slice(-20);
         loadMemoriesCount();

@@ -8,6 +8,9 @@ Usage:
 Opens http://127.0.0.1:5000 automatically in your default browser.
 """
 
+import base64
+import cgi
+import io
 import json
 import os
 import socket
@@ -30,6 +33,20 @@ from src.ai_service import query_openai, stream_query
 BASE_DIR = Path(__file__).resolve().parent
 TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
+UPLOADS_DIR = BASE_DIR / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)   # Create uploads/ directory if it doesn't exist
+
+# ---------------------------------------------------------------------------
+# Upload limits
+# ---------------------------------------------------------------------------
+MAX_FILE_SIZE = 10 * 1024 * 1024   # 10 MB per file
+MAX_FILES_PER_MESSAGE = 4
+
+# ---------------------------------------------------------------------------
+# Allowed MIME types for upload
+# ---------------------------------------------------------------------------
+ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+ALLOWED_TEXT_EXTENSIONS = {".txt", ".py", ".js", ".md", ".csv", ".json", ".html", ".css"}
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -79,6 +96,9 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
         self.end_headers()
         self.wfile.write(body_bytes)
 
@@ -98,7 +118,10 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.NO_CONTENT)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS, DELETE")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header(
+            "Access-Control-Allow-Headers",
+            "Content-Type, Authorization, multipart/form-data",
+        )
         self.end_headers()
 
     def _get_auth_user(self):
@@ -179,6 +202,94 @@ class RequestHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
+        # ------------------------------------------------------------------
+        # /api/upload — multipart/form-data file upload
+        # ------------------------------------------------------------------
+        if path == "/api/upload":
+            content_type = self.headers.get("Content-Type", "")
+            if "multipart/form-data" not in content_type:
+                self._send_json(
+                    {"success": False, "error": "Expected multipart/form-data"},
+                    HTTPStatus.BAD_REQUEST,
+                )
+                return
+
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+
+            # Parse using the built-in cgi module (available in Python 3.10)
+            environ = {
+                "REQUEST_METHOD": "POST",
+                "CONTENT_TYPE": content_type,
+                "CONTENT_LENGTH": str(content_length),
+            }
+            form = cgi.FieldStorage(
+                fp=io.BytesIO(body),
+                headers=self.headers,
+                environ=environ,
+            )
+
+            files_result = []
+            items = form.list or []
+
+            for item in items:
+                if not item.filename:
+                    continue  # Skip non-file fields
+
+                file_bytes = item.file.read()
+                file_size  = len(file_bytes)
+                file_name  = Path(item.filename).name  # Sanitize — basename only
+                file_type  = item.type or "application/octet-stream"
+                ext        = Path(file_name).suffix.lower()
+
+                # Size guard
+                if file_size > MAX_FILE_SIZE:
+                    self._send_json(
+                        {"success": False, "error": f"File '{file_name}' exceeds 10 MB limit."},
+                        HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                    )
+                    return
+
+                # Per-message file count guard
+                if len(files_result) >= MAX_FILES_PER_MESSAGE:
+                    self._send_json(
+                        {"success": False, "error": "Maximum 4 files per message."},
+                        HTTPStatus.BAD_REQUEST,
+                    )
+                    return
+
+                # Save file to uploads/ directory for reference
+                dest = UPLOADS_DIR / file_name
+                dest.write_bytes(file_bytes)
+
+                file_b64  = None
+                file_text = None
+
+                if file_type in ALLOWED_IMAGE_TYPES:
+                    # Image → base64-encode for multimodal AI
+                    file_b64 = base64.b64encode(file_bytes).decode("utf-8")
+                elif ext in ALLOWED_TEXT_EXTENSIONS:
+                    # Text file → decode as UTF-8 for inline context
+                    try:
+                        file_text = file_bytes.decode("utf-8")
+                    except UnicodeDecodeError:
+                        file_text = file_bytes.decode("utf-8", errors="replace")
+                else:
+                    # Unsupported type — skip silently rather than error
+                    continue
+
+                files_result.append({
+                    "name": file_name,
+                    "type": file_type,
+                    "size": file_size,
+                    "data": file_b64,
+                    "text": file_text,
+                })
+
+            self._send_json({"success": True, "files": files_result})
+            return
+
+        # For all other POST routes, read the body as JSON
         content_length = int(self.headers.get("Content-Length", 0))
         post_data = self.rfile.read(content_length)
         try:
@@ -212,6 +323,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             model_override  = payload.get("model")
             system_override = payload.get("system_instructions")
             conversation_id = payload.get("conversation_id")
+            attachments     = payload.get("attachments") or []  # list of {name, type, data, text}
 
             if not question:
                 self._send_json({"success": False, "error": "Question is empty."})
@@ -244,6 +356,7 @@ class RequestHandler(BaseHTTPRequestHandler):
                     model_override=model_override,
                     system_instructions=system_override,
                     user_id=user_id,
+                    attachments=attachments,
                 ):
                     if chunk.startswith("__MODEL__"):
                         used_model = chunk[len("__MODEL__"):]
@@ -292,12 +405,15 @@ class RequestHandler(BaseHTTPRequestHandler):
                 if user_id and conversation_id:
                     db.add_message(user_id, conversation_id, "user", question)
 
+                attachments = payload.get("attachments") or []
+
                 result = query_openai(
                     question=question,
                     history=history,
                     model_override=model_override,
                     system_instructions=system_override,
                     user_id=user_id,
+                    attachments=attachments,
                 )
 
                 if result.get("success") and user_id and conversation_id:
