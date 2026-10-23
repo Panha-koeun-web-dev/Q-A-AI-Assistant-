@@ -474,11 +474,12 @@
 
     /* Streaming cursor while tokens are arriving */
     .bubble.streaming::after {
-      content: 'u25‌‌‌▋';
+      content: 'QA AI';
       display: inline-block;
       animation: blink-cursor 0.7s step-end infinite;
       color: var(--accent);
-      margin-left: 2px;
+      margin-left: 3px;
+      font-size: 0.88em;
     }
 
     @keyframes blink-cursor {

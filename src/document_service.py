@@ -1,15 +1,4 @@
-"""
-src/document_service.py
------------------------
-Extracts clean, structured text and information from user-uploaded files and images.
-Supports:
-- PDF (.pdf) via pypdf
-- Word documents (.docx) via python-docx
-- Excel spreadsheets (.xlsx, .xls) via openpyxl
-- CSV / TSV tabular files
-- Code and plain text files (.py, .js, .html, .css, .json, .md, .sql, etc.)
-- Images (.png, .jpg, .jpeg, .webp, .gif): OCR text extraction via Windows OCR + metadata
-"""
+
 
 import base64
 import csv
@@ -23,45 +12,37 @@ except ImportError:
     Image = None
 
 # ---------------------------------------------------------------------------
-# OCR via Windows Media OCR (built into Windows 10/11)
+# Optional OCR via Windows Media OCR (loaded dynamically to avoid missing import warnings)
 # ---------------------------------------------------------------------------
-_OCR_AVAILABLE = False
-try:
-    import winsdk.windows.media.ocr as win_ocr
-    import winsdk.windows.graphics.imaging as win_imaging
-    import winsdk.windows.storage.streams as win_streams
-    _OCR_AVAILABLE = True
-except Exception:
-    _OCR_AVAILABLE = False
-
-
 def _run_windows_ocr_sync(image_bytes: bytes) -> str:
-    """Runs Windows native OCR synchronously on image bytes."""
-    if not _OCR_AVAILABLE:
-        return ""
-
-    import asyncio
-
-    async def _async_ocr():
-        try:
-            stream = win_streams.InMemoryRandomAccessStream()
-            writer = win_streams.DataWriter(stream)
-            writer.write_bytes(bytearray(image_bytes))
-            await writer.store_async()
-            stream.seek(0)
-
-            decoder = await win_imaging.BitmapDecoder.create_async(stream)
-            bitmap = await decoder.get_software_bitmap_async()
-
-            engine = win_ocr.OcrEngine.try_create_from_user_profile_languages()
-            if not engine:
-                return ""
-            result = await engine.recognize_async(bitmap)
-            return (result.text or "").strip()
-        except Exception:
-            return ""
-
+    """Runs Windows native OCR synchronously on image bytes if available."""
     try:
+        import asyncio
+        import importlib
+
+        win_ocr = importlib.import_module("winsdk.windows.media.ocr")
+        win_imaging = importlib.import_module("winsdk.windows.graphics.imaging")
+        win_streams = importlib.import_module("winsdk.windows.storage.streams")
+
+        async def _async_ocr():
+            try:
+                stream = win_streams.InMemoryRandomAccessStream()
+                writer = win_streams.DataWriter(stream)
+                writer.write_bytes(bytearray(image_bytes))
+                await writer.store_async()
+                stream.seek(0)
+
+                decoder = await win_imaging.BitmapDecoder.create_async(stream)
+                bitmap = await decoder.get_software_bitmap_async()
+
+                engine = win_ocr.OcrEngine.try_create_from_user_profile_languages()
+                if not engine:
+                    return ""
+                result = await engine.recognize_async(bitmap)
+                return (result.text or "").strip()
+            except Exception:
+                return ""
+
         try:
             loop = asyncio.get_event_loop()
         except RuntimeError:
@@ -69,7 +50,6 @@ def _run_windows_ocr_sync(image_bytes: bytes) -> str:
             asyncio.set_event_loop(loop)
 
         if loop.is_running():
-            # If already inside an asyncio loop
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 return executor.submit(lambda: asyncio.run(_async_ocr())).result(timeout=10)
